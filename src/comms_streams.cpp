@@ -12,6 +12,9 @@ static PacketCommander packet_commander(/*echo=*/true);
 static Telemetry telemetry;
 static TextIO *stream_io = nullptr;
 
+// BKP_DR1 magic to request bootloader (handled in bootloader on reset)
+constexpr uint16_t BOOT_MAGIC = 0xB007;
+
 // Telemetry register set: target, angle, velocity, enable, status.
 static uint8_t telemetry_registers[] = {
     REG_TARGET,
@@ -43,4 +46,13 @@ void handle_streams(BLDCMotor &motor) {
   }
   packet_commander.run();
   telemetry.run();
+}
+
+// Write magic to backup register and reset into bootloader
+void request_bootloader_reset() {
+  // Enable backup domain access and write magic to BKP_DR1
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_BKP_CLK_ENABLE();
+  WRITE_REG(BKP->DR1, BOOT_MAGIC);
+  NVIC_SystemReset();
 }

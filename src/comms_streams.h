@@ -7,3 +7,6 @@
 // Transport is Arduino Stream-compatible (UART1 / Serial on PA9/PA10).
 void init_streams(BLDCMotor &motor);
 void handle_streams(BLDCMotor &motor);
+
+// Trigger a reset into the bootloader update mode.
+void request_bootloader_reset();

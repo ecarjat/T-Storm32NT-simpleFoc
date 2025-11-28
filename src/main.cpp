@@ -14,11 +14,57 @@ BLDCMotor motor(motor_config::POLE_PAIRS);
 BLDCDriver3PWM driver(PHASE_U_PIN, PHASE_V_PIN, PHASE_W_PIN);
 static bool system_running = false;
 
+// No custom vector table; use Arduino's startup table
+
+// Blink fast on HardFault using raw registers and stash PC in BKP_DR2/DR3.
+extern "C" void HardFault_Handler() {
+  // Capture stacked PC
+  uint32_t *sp;
+  __asm volatile("mrs %0, msp" : "=r"(sp));
+  uint32_t pc = sp[6];
+  uint32_t cfsr = SCB->CFSR;
+  uint32_t hfsr = SCB->HFSR;
+  uint32_t bfar = SCB->BFAR;
+
+  // Enable backup domain and store PC (survives reset)
+  RCC->APB1ENR |= RCC_APB1ENR_PWREN | RCC_APB1ENR_BKPEN;
+  PWR->CR |= PWR_CR_DBP;
+  BKP->DR1 = (uint16_t)(pc & 0xFFFF);
+  BKP->DR2 = (uint16_t)(pc >> 16);
+  BKP->DR3 = (uint16_t)(cfsr & 0xFFFF);
+  BKP->DR4 = (uint16_t)(cfsr >> 16);
+  BKP->DR5 = (uint16_t)(hfsr & 0xFFFF);
+  BKP->DR6 = (uint16_t)(hfsr >> 16);
+  BKP->DR7 = (uint16_t)(bfar & 0xFFFF);
+  BKP->DR8 = (uint16_t)(bfar >> 16);
+
+  // Enable GPIOA clock and drive PA1
+  RCC->APB2ENR |= RCC_APB2ENR_IOPAEN;
+  GPIOA->CRL &= ~(GPIO_CRL_MODE1 | GPIO_CRL_CNF1);
+  GPIOA->CRL |= (0x2 << GPIO_CRL_MODE1_Pos); // MODE1 = 10 (2 MHz PP)
+
+  while (1) {
+    GPIOA->ODR ^= GPIO_ODR_ODR1;
+    for (volatile uint32_t i = 0; i < 50000; i++) {
+      __NOP();
+    }
+  }
+}
+
 // Forward declarations
 static void setup_driver_and_motor(bool use_encoder);
 static void heartbeat_led(bool running);
 
 void setup() {
+  // Use the vector table provided by Arduino startup (VTOR should already be set)
+
+  // Early LED sanity blink to verify app entry (uses Arduino)
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  digitalWrite(STATUS_LED_PIN, HIGH);
+  delay(200);
+  digitalWrite(STATUS_LED_PIN, LOW);
+  delay(200);
+
   // 1) Init basic IO (LED + UART clocking) early.
   init_debug_led();
   digitalWrite(STATUS_LED_PIN, HIGH); // solid on during setup
