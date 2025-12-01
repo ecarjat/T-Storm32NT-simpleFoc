@@ -46,7 +46,7 @@ def wait_for_ok(ser, timeout=30.0):
         line = ser.readline()
         if not line:
             continue
-        print(f"bootloader said: {line!r}")
+        # Only surface errors; ignore ACK/OK chatter
         if b"OK" in line or b"ACK" in line:
             return True
         if any(err in line for err in [b"ER", b"CRC", b"PFAIL", b"TIMEOUT", b"ERASE", b"ERCHK"]):
@@ -84,6 +84,7 @@ def flash(port, baud, bin_path, reset_first):
         print("Streaming firmware...")
         offset = 0
         page = 0
+        total_pages = (len(fw) + 255) // 256
         while offset < len(fw):
             chunk = fw[offset:offset+256]
             ser.write(chunk)
@@ -93,8 +94,10 @@ def flash(port, baud, bin_path, reset_first):
             if not wait_for_ok(ser, timeout=5.0):
                 sys.stderr.write(f"No ACK/OK for chunk {page}\n")
                 return False
-            print(f"Sent page {page}, bytes {offset + len(chunk)}/{len(fw)}")
+            sys.stdout.write(f"\rSent {page}/{total_pages} pages")
+            sys.stdout.flush()
             offset += len(chunk)
+        sys.stdout.write("\n")
 
         if not wait_for_ok(ser, timeout=15.0):
             sys.stderr.write("No final OK from bootloader\n")
