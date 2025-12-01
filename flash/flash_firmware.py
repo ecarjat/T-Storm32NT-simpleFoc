@@ -40,17 +40,19 @@ def send_reset(ser):
     ser.flush()
 
 
-def wait_for_ok(ser, timeout=5.0):
+def wait_for_ok(ser, timeout=30.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
         line = ser.readline()
         if not line:
             continue
-        if b"OK" in line:
+        print(f"bootloader said: {line!r}")
+        if b"OK" in line or b"ACK" in line:
             return True
-        if any(err in line for err in [b"ER", b"CRC", b"PFAIL", b"TIMEOUT"]):
+        if any(err in line for err in [b"ER", b"CRC", b"PFAIL", b"TIMEOUT", b"ERASE", b"ERCHK"]):
             sys.stderr.write(f"Bootloader error: {line!r}\n")
             return False
+    sys.stderr.write(f"No OK before timeout ({timeout}s)\n")
     return False
 
 
@@ -61,6 +63,8 @@ def flash(port, baud, bin_path, reset_first):
 
     print(f"Connecting to {port} @ {baud}...")
     with serial.Serial(port, baudrate=baud, timeout=0.5) as ser:
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
         if reset_first:
             print("Requesting reset to bootloader...")
             send_reset(ser)
@@ -71,15 +75,28 @@ def flash(port, baud, bin_path, reset_first):
         ser.write(header)
         ser.flush()
 
-        if not wait_for_ok(ser, timeout=3.0):
-            sys.stderr.write("No OK from bootloader after header\n")
+        if not wait_for_ok(ser, timeout=5.0):
+            sys.stderr.write("No OK from bootloader after header/erase\n")
             return False
+        else :
+            print("Bootloader OK after header/erase, sending firmware...")
 
         print("Streaming firmware...")
-        ser.write(fw)
-        ser.flush()
+        offset = 0
+        page = 0
+        while offset < len(fw):
+            chunk = fw[offset:offset+256]
+            ser.write(chunk)
+            ser.flush()
+            page += 1
+            # wait for ACK or error for this chunk
+            if not wait_for_ok(ser, timeout=5.0):
+                sys.stderr.write(f"No ACK/OK for chunk {page}\n")
+                return False
+            print(f"Sent page {page}, bytes {offset + len(chunk)}/{len(fw)}")
+            offset += len(chunk)
 
-        if not wait_for_ok(ser, timeout=5.0):
+        if not wait_for_ok(ser, timeout=15.0):
             sys.stderr.write("No final OK from bootloader\n")
             return False
 
