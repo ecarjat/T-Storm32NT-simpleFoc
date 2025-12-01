@@ -85,7 +85,7 @@ void handle_streams(BLDCMotor &motor) {
     return;
   }
   packet_commander.run();
-  // telemetry.run();
+  telemetry.run();
 }
 
 // Write magic to backup register and reset into bootloader
