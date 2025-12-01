@@ -7,14 +7,30 @@
 
 #include "board_pins.h"
 
+// Custom PacketCommander that catches a 'B' packet to trigger bootloader reset.
+class BootPacketCommander : public PacketCommander {
+public:
+  using PacketCommander::PacketCommander;
+
+protected:
+  bool handlePacket(Packet &packet) override {
+    if (packet.type == 'B') {
+      uint8_t code = 0;
+      *_io >> code;
+      // require "B6" (at least two chars before newline) to avoid accidental resets
+      if (code == 6) {
+        request_bootloader_reset();
+      }
+      return true;
+    }
+    return PacketCommander::handlePacket(packet);
+  }
+};
+
 // Text-based stream over UART1 (PA9/PA10). BinaryIO is available if higher throughput is needed.
-static PacketCommander packet_commander(/*echo=*/true);
+static BootPacketCommander packet_commander(/*echo=*/true);
 static Telemetry telemetry;
 static TextIO *stream_io = nullptr;
-
-// BOOT command detection
-static constexpr const char BOOT_CMD[] = "BOOT";
-static uint8_t boot_match_idx = 0;
 
 // BKP_DR1 magic to request bootloader (handled in bootloader on reset)
 constexpr uint16_t BOOT_MAGIC = 0xB007;
@@ -48,28 +64,8 @@ void handle_streams(BLDCMotor &motor) {
   if (!stream_io) {
     return;
   }
-
-  // Check for plain "BOOT\n" to trigger bootloader reset
-  // BOOT detection: only trigger if the buffer exactly holds "BOOT" (optionally followed by CR/LF)
-  // PacketCommander packets start with 'R'/'r'/'T'/'H'/'A'/'S', so this should not collide.
-  if (Serial.available() >= 4) {
-    if (Serial.peek() == 'B') {
-      // Only proceed if we have exactly "BOOT" (and maybe CR/LF) in the buffer
-      if (Serial.available() <= 6) {
-        char buf[6] = {0};
-        size_t n = Serial.readBytes(buf, Serial.available());
-        if (n >= 4 && strncmp(buf, BOOT_CMD, 4) == 0) {
-          request_bootloader_reset();
-          // Do not return; PacketCommander will see an empty buffer
-        } else {
-          // If not BOOT, do nothing else (data consumed)
-        }
-      }
-    }
-  }
-
   packet_commander.run();
-  telemetry.run();
+  // telemetry.run();
 }
 
 // Write magic to backup register and reset into bootloader
@@ -78,5 +74,6 @@ void request_bootloader_reset() {
   HAL_PWR_EnableBkUpAccess();
   __HAL_RCC_BKP_CLK_ENABLE();
   WRITE_REG(BKP->DR1, BOOT_MAGIC);
+
   NVIC_SystemReset();
 }

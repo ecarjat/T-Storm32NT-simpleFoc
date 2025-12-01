@@ -8,6 +8,7 @@
 
 // UART1 is the primary host interface (PA9/PA10).
 constexpr unsigned long UART_BAUD = 115200;
+constexpr const char *APP_VERSION = "app_v1.0.0";
 
 // SimpleFOC objects
 BLDCMotor motor(motor_config::POLE_PAIRS);
@@ -69,6 +70,9 @@ void setup() {
   init_debug_led();
   digitalWrite(STATUS_LED_PIN, HIGH); // solid on during setup
   init_uart_comms(UART_BAUD);
+  // UART sanity: print serial marker
+  Serial.print("APP_START ");
+  Serial.println(APP_VERSION);
 
   // 2) Configuration: use encoder or force open-loop based on board setting.
   const bool use_encoder = BOARD_USE_ENCODER;

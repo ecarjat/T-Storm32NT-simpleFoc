@@ -2,7 +2,7 @@
 """
 Host-side updater for the firmware via either UART bootloader or STLink (st-flash).
 UART protocol:
- 1) Optionally send a reset-to-bootloader command (ASCII "BOOT\n") to the app.
+ 1) Optionally send a reset-to-bootloader command (ASCII "B6\n") to the app.
  2) Bootloader listens for "UPD0" + <uint32 length> + <uint32 crc32>, replies "OK",
     then accepts the firmware bytes, and replies "OK" on success.
 
@@ -25,7 +25,7 @@ import serial  # pyserial
 
 
 MAGIC = b"UPD0"
-RESET_CMD = b"BOOT\n"
+RESET_CMD = b"B6\n"
 DEFAULT_BAUD = 115200
 DEFAULT_APP_ADDR = "0x08002000"
 
@@ -46,13 +46,24 @@ def wait_for_ok(ser, timeout=30.0):
         line = ser.readline()
         if not line:
             continue
-        # Only surface errors; ignore ACK/OK chatter
         if b"OK" in line or b"ACK" in line:
             return True
         if any(err in line for err in [b"ER", b"CRC", b"PFAIL", b"TIMEOUT", b"ERASE", b"ERCHK"]):
             sys.stderr.write(f"Bootloader error: {line!r}\n")
             return False
     sys.stderr.write(f"No OK before timeout ({timeout}s)\n")
+    return False
+
+def wait_for_boot(ser, timeout=10.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        line = ser.readline()
+        if not line:
+            continue
+        if b"BOOT" in line:
+            print("Target reset to bootloader")
+            return True
+    sys.stderr.write(f"No BOOT/OK before timeout ({timeout}s)\n")
     return False
 
 
@@ -68,7 +79,9 @@ def flash(port, baud, bin_path, reset_first):
         if reset_first:
             print("Requesting reset to bootloader...")
             send_reset(ser)
-            time.sleep(1.0)
+            if not wait_for_boot(ser, timeout=5.0):
+                sys.stderr.write("No BOOT/OK from target after reset\n")
+                return False
 
         header = MAGIC + struct.pack("<II", length, crc)
         print(f"Sending header: len={length}, crc=0x{crc:08X}")
@@ -148,3 +161,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
