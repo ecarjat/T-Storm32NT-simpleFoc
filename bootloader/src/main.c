@@ -17,6 +17,7 @@ UART_HandleTypeDef huart1;
 
 static uint8_t rx_buf[RX_BUF_SIZE];
 
+/* No longer used
 static void log_wrpr(void) {
   FLASH_OBProgramInitTypeDef ob = {0};
   HAL_FLASHEx_OBGetConfig(&ob);
@@ -38,6 +39,7 @@ static void log_wrpr(void) {
   buf[n++] = '\n';
   HAL_UART_Transmit(&huart1, (uint8_t *)buf, (uint16_t)n, 100);
 }
+*/
 
 static void send_hex8(uint8_t v) {
   char buf[5];
@@ -146,7 +148,7 @@ int main(void) {
 
   // bootloader indicator
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET); // solid on at start
-  log_wrpr();
+  // log_wrpr();
 
   // BOOT magic: if not set and app valid, jump
   if (READ_REG(BKP->DR1) != BOOT_MAGIC) {
