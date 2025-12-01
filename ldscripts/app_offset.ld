@@ -1,9 +1,11 @@
-/* Linker script for STM32F103C8/T8 application at 0x08002000 (56 KB flash) */
+/* Linker script for STM32F103C8/T8 application at 0x08002000.
+ * Flash region intentionally limited to stop before last 1KB page (0x0800FC00)
+ * reserved for runtime settings persistence. */
 ENTRY(Reset_Handler)
 
 MEMORY
 {
-  FLASH (rx)  : ORIGIN = 0x08002000, LENGTH = 0x0000E000
+  FLASH (rx)  : ORIGIN = 0x08002000, LENGTH = 0x0000DC00
   RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 0x00005000
 }
 

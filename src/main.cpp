@@ -5,6 +5,7 @@
 #include "comms_streams.h"
 #include "motor_config.h"
 #include "sensor_tle5012b.h"
+#include "runtime_settings.h"
 
 // UART1 is the primary host interface (PA9/PA10).
 constexpr unsigned long UART_BAUD = 115200;
@@ -73,6 +74,12 @@ void setup() {
   // UART sanity: print serial marker
   Serial.print("APP_START ");
   Serial.println(APP_VERSION);
+  const bool settings_loaded = load_settings_from_flash();
+  if (settings_loaded) {
+    Serial.println("SETTINGS_LOADED");
+  } else {
+    Serial.println("SETTINGS_DEFAULT");
+  }
 
   // 2) Configuration: use encoder or force open-loop based on board setting.
   const bool use_encoder = BOARD_USE_ENCODER;
@@ -87,7 +94,7 @@ void setup() {
   setup_driver_and_motor(use_encoder);
 
   // 5) Initialize UART streams/telemetry.
-  init_streams(motor);
+  init_streams(motor, driver);
   system_running = true;
 }
 
@@ -100,9 +107,10 @@ void loop() {
 }
 
 static void setup_driver_and_motor(bool use_encoder) {
+  // Apply persisted settings (or defaults) before init.
+  apply_settings_to_objects(motor, driver);
+
   // Driver settings for DRV8313 (3-PWM, no enable/fault GPIO).
-  driver.voltage_power_supply = motor_config::SUPPLY_VOLTAGE;
-  driver.voltage_limit = motor_config::DRIVER_VOLTAGE_LIMIT;
   driver.pwm_frequency = 20000; // Hz, adjust per DRV8313/efficiency
   driver.init();
 
@@ -114,12 +122,6 @@ static void setup_driver_and_motor(bool use_encoder) {
   } else {
     motor.controller = MotionControlType::velocity_openloop;
   }
-  motor.voltage_limit = motor_config::DRIVER_VOLTAGE_LIMIT;
-  motor.velocity_limit = motor_config::VELOCITY_LIMIT;
-  motor.PID_velocity.P = motor_config::PID_P;
-  motor.PID_velocity.I = motor_config::PID_I;
-  motor.PID_velocity.D = motor_config::PID_D;
-  motor.LPF_velocity.Tf = motor_config::LPF_TF;
 
   motor.init();
   if (use_encoder) {

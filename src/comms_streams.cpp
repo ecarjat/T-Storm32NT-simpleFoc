@@ -6,6 +6,10 @@
 #include <comms/telemetry/Telemetry.h>
 
 #include "board_pins.h"
+#include "runtime_settings.h"
+
+// Forward pointer to driver for save-settings handling.
+static BLDCDriver3PWM *g_driver = nullptr;
 
 // Custom PacketCommander that catches a 'B' packet to trigger bootloader reset.
 class BootPacketCommander : public PacketCommander {
@@ -20,6 +24,21 @@ protected:
       // require "B6" (at least two chars before newline) to avoid accidental resets
       if (code == 6) {
         request_bootloader_reset();
+      }
+      return true;
+    }
+    if (packet.type == 'S') {
+      uint8_t code = 0;
+      *_io >> code;
+      if (code == 1 && motors[curMotor] && g_driver) {
+        // PacketCommander stores FOCMotor*, but we add a BLDCMotor so this cast is safe here.
+        auto *m = static_cast<BLDCMotor *>(motors[curMotor]);
+        bool ok = save_settings_to_flash(*m, *g_driver);
+        if (ok) {
+          Serial.print("SAVE_OK\n");
+        } else {
+          Serial.print("SAVE_ERR\n");
+        }
       }
       return true;
     }
@@ -44,10 +63,11 @@ static uint8_t telemetry_registers[] = {
     REG_STATUS,
 };
 
-void init_streams(BLDCMotor &motor) {
+void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver) {
   static TextIO serial_io(Serial);
   serial_io.precision = 4;
   stream_io = &serial_io;
+  g_driver = &driver;
 
   packet_commander.addMotor(&motor);
   packet_commander.init(*stream_io);
