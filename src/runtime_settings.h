@@ -10,6 +10,7 @@ struct RuntimeSettings {
   float kv_rating = motor_config::KV_RATING;
   float supply_voltage = motor_config::SUPPLY_VOLTAGE;
   float driver_voltage_limit = motor_config::DRIVER_VOLTAGE_LIMIT;
+  float motor_voltage_limit = motor_config::MOTOR_VOLTAGE_LIMIT;
   float velocity_limit = motor_config::VELOCITY_LIMIT;
   float pid_p = motor_config::PID_P;
   float pid_i = motor_config::PID_I;

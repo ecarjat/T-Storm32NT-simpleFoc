@@ -23,7 +23,7 @@ constexpr uint8_t STRAP0_PIN = PA2;     // SJ2 optional strap to GND
 constexpr uint8_t STRAP1_PIN = PA4;     // SJ3 optional strap to GND
 
 // Firmware configuration
-constexpr bool BOARD_USE_ENCODER = false; // Set false to force sensorless (open-loop) mode
+constexpr bool BOARD_USE_ENCODER = true; // Set false to force sensorless (open-loop) mode
 
 // Reserved / not available pins (documented for clarity)
 // PB2 → GND, PA11/PA12 → GND, RESET/SLEEP/FAULT on DRV8313 not connected

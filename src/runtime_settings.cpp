@@ -3,13 +3,6 @@
 #include <Arduino.h>
 #include <stm32f1xx_hal.h>
 
-// Reserve the last 1KB flash page (64KB device) for settings.
-// Bootloader is at 0x08000000-0x08001FFF, app starts at 0x08002000, app size ~50KB,
-// so 0x0800FC00 should remain unused by app/bootloader.
-constexpr uint32_t SETTINGS_ADDR = 0x0800FC00UL;
-constexpr uint32_t SETTINGS_MAGIC = 0x53544631; // "STF1"
-constexpr uint32_t SETTINGS_VERSION = 1;
-
 // CRC32 (polynomial 0xEDB88320) for integrity.
 static uint32_t crc32_calc(const uint8_t *data, size_t len) {
   uint32_t crc = 0xFFFFFFFF;
@@ -90,6 +83,7 @@ bool save_settings_to_flash(const BLDCMotor &motor, const BLDCDriver3PWM &driver
   s.kv_rating = motor.KV_rating;
   s.supply_voltage = driver.voltage_power_supply;
   s.driver_voltage_limit = driver.voltage_limit;
+  s.motor_voltage_limit = motor.voltage_limit;
   s.velocity_limit = motor.velocity_limit;
   s.pid_p = motor.PID_velocity.P;
   s.pid_i = motor.PID_velocity.I;
@@ -115,7 +109,7 @@ void apply_settings_to_objects(BLDCMotor &motor, BLDCDriver3PWM &driver) {
   motor.KV_rating = s.kv_rating;
   driver.voltage_power_supply = s.supply_voltage;
   driver.voltage_limit = s.driver_voltage_limit;
-  motor.voltage_limit = s.driver_voltage_limit;
+  motor.voltage_limit = s.motor_voltage_limit;
   motor.velocity_limit = s.velocity_limit;
   motor.PID_velocity.P = s.pid_p;
   motor.PID_velocity.I = s.pid_i;
