@@ -3,8 +3,8 @@
 
 #include "board_pins.h"
 #include "comms_streams.h"
+#include "driver/tle5012b_full_duplex.h"
 #include "motor_config.h"
-#include "sensor_tle5012b.h"
 #include "runtime_settings.h"
 
 // UART1 is the primary host interface (PA9/PA10).
@@ -14,6 +14,7 @@ constexpr const char *APP_VERSION = "app_v1.0.0";
 // SimpleFOC objects
 BLDCMotor motor(motor_config::POLE_PAIRS);
 BLDCDriver3PWM driver(PHASE_U_PIN, PHASE_V_PIN, PHASE_W_PIN);
+TLE5012BFullDuplex encoder_sensor(ENC_MOSI_PIN, ENC_MISO_PIN, ENC_SCK_PIN, ENC_CS_PIN);
 static bool system_running = false;
 
 // No custom vector table; use Arduino's startup table
@@ -86,8 +87,7 @@ void setup() {
 
   // 3) Bring up SPI1 + encoder (3-wire DATA).
   if (use_encoder) {
-    init_spi_encoder();
-    setup_tle5012b_sensor();
+    encoder_sensor.init();
   }
 
   // 4) Configure driver + motor objects and run FOC alignment.
