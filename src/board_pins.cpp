@@ -7,12 +7,6 @@ void init_debug_led() {
   digitalWrite(STATUS_LED_PIN, LOW);
 }
 
-void init_spi_encoder() {
-  // MagneticSensorTLE5012B configures SPI1 in half-duplex on MOSI.
-  // Keep MISO high-impedance so the shared DATA line is not driven.
-  pinMode(ENC_MISO_PIN, INPUT);
-}
-
 void init_uart_comms(unsigned long baud) {
   // UART1 (PA9/PA10) is wired to the NT bus. Default Serial maps to a different UART,
   // so explicitly select pins to bind Serial to USART1.
