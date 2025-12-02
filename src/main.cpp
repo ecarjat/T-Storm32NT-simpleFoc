@@ -9,7 +9,7 @@
 
 // UART1 is the primary host interface (PA9/PA10).
 constexpr unsigned long UART_BAUD = 115200;
-constexpr const char *APP_VERSION = "app_v1.0.0";
+constexpr const char* APP_VERSION = "app_v1.0.0";
 
 // SimpleFOC objects
 BLDCMotor motor(motor_config::POLE_PAIRS);
@@ -22,7 +22,7 @@ static bool system_running = false;
 // Blink fast on HardFault using raw registers and stash PC in BKP_DR2/DR3.
 extern "C" void HardFault_Handler() {
   // Capture stacked PC
-  uint32_t *sp;
+  uint32_t* sp;
   __asm volatile("mrs %0, msp" : "=r"(sp));
   uint32_t pc = sp[6];
   uint32_t cfsr = SCB->CFSR;
@@ -44,7 +44,7 @@ extern "C" void HardFault_Handler() {
   // Enable GPIOA clock and drive PA1
   RCC->APB2ENR |= RCC_APB2ENR_IOPAEN;
   GPIOA->CRL &= ~(GPIO_CRL_MODE1 | GPIO_CRL_CNF1);
-  GPIOA->CRL |= (0x2 << GPIO_CRL_MODE1_Pos); // MODE1 = 10 (2 MHz PP)
+  GPIOA->CRL |= (0x2 << GPIO_CRL_MODE1_Pos);  // MODE1 = 10 (2 MHz PP)
 
   while (1) {
     GPIOA->ODR ^= GPIO_ODR_ODR1;
@@ -70,7 +70,7 @@ void setup() {
 
   // 1) Init basic IO (LED + UART clocking) early.
   init_debug_led();
-  digitalWrite(STATUS_LED_PIN, HIGH); // solid on during setup
+  digitalWrite(STATUS_LED_PIN, HIGH);  // solid on during setup
   init_uart_comms(UART_BAUD);
   // UART sanity: print serial marker
   Serial.print("APP_START ");
@@ -99,8 +99,13 @@ void setup() {
 }
 
 void loop() {
-  motor.loopFOC(); // Field-oriented control + sensor update
-  motor.move();    // Target set via streams or defaults
+  
+  if (motor.controller == MotionControlType::angle) {
+    const float c = _PI_3/motor.pole_pairs;
+    motor.target = floor(motor.target / c + 0.5f) * c;
+  }
+  motor.loopFOC();  // Field-oriented control + sensor update
+  motor.move();     // Target set via streams or defaults
 
   handle_streams(motor);
   heartbeat_led(system_running);
@@ -111,22 +116,31 @@ static void setup_driver_and_motor(bool use_encoder) {
   apply_settings_to_objects(motor, driver);
 
   // Driver settings for DRV8313 (3-PWM, no enable/fault GPIO).
-  driver.pwm_frequency = 20000; // Hz, adjust per DRV8313/efficiency
+  driver.pwm_frequency = 20000;  // Hz, adjust per DRV8313/efficiency
   driver.init();
 
   // Motor configuration: with encoder = closed-loop velocity, without = open-loop velocity.
   motor.linkDriver(&driver);
   if (use_encoder) {
     motor.linkSensor(&encoder_sensor);
-    motor.controller = MotionControlType::velocity;
-  } else {
-    motor.controller = MotionControlType::velocity_openloop;
   }
+
+  motor.controller = MotionControlType::velocity_openloop;
+  motor.foc_modulation = FOCModulationType::SpaceVectorPWM;
+  motor.voltage_sensor_align = 3;
+  // jerk control using voltage voltage ramp
+  // default value is 300 volts per sec  ~ 0.3V per millisecond
+  motor.PID_velocity.output_ramp = 1000;
+
+  // angle P controller -  default P=20
+  motor.P_angle.P = 20;
+
 
   motor.init();
   if (use_encoder) {
     motor.initFOC();
   }
+  motor.target = 0.0f;
 }
 
 static void heartbeat_led(bool running) {
@@ -136,7 +150,7 @@ static void heartbeat_led(bool running) {
   }
   static unsigned long last_toggle = 0;
   static bool led_state = false;
-  const unsigned long interval = running ? 500 : 250; // ms
+  const unsigned long interval = running ? 500 : 250;  // ms
   const unsigned long now = millis();
   if (now - last_toggle >= interval) {
     led_state = !led_state;

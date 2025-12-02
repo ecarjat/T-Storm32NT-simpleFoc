@@ -31,6 +31,7 @@ REGISTER_IDS = {
     "control_mode": 0x05,
     "torque_mode": 0x06,
     "angle": 0x09,
+    "position": 0x10,
     "velocity": 0x11,
     "telemetry_ctrl": 0x1B,
     "telemetry_downsample": 0x1C,
@@ -40,6 +41,7 @@ REG_TARGET = REGISTER_IDS["target"]
 REG_ENABLE = REGISTER_IDS["enable"]
 REG_CONTROL_MODE = REGISTER_IDS["control_mode"]
 REG_ANGLE = REGISTER_IDS["angle"]
+REG_POSITION = REGISTER_IDS["position"]
 REG_VELOCITY = REGISTER_IDS["velocity"]
 
 READ_REGEX = re.compile(r"r(?P<reg>\d+)\s*=\s*(?P<val>[-+0-9.eE]+)")
@@ -48,14 +50,14 @@ TELEM_DATA_REGEX = re.compile(r"T(?P<tid>\d+)=?(?P<body>.*)")
 DEFAULT_TELEM_REGS = [
     (0, REG_TARGET),
     (0, REG_ANGLE),
+    (0, REG_POSITION),  # Sensor position (rotations + angle)
     (0, REG_VELOCITY),
-    (0, REG_ENABLE),
     (0, REG_STATUS),
 ]
 REG_NAME_MAP = {val: name for name, val in REGISTER_IDS.items()}
 REG_NAME_MAP.update(
     {
-        0x10: "position",  # rotations + angle
+        0x10: "sensor_position",  # rotations + angle
         0x12: "sensor_angle",
         0x13: "sensor_mech_angle",
         0x14: "sensor_velocity",
@@ -531,36 +533,46 @@ def main():
                     stop_run(client, state)
                     break  # return to main menu
                 if ch == ord("f"):
+                    state.set_enable(True)
                     state.running = True
                     state.running_dir = 1
                     draw_ui(stdscr, state)
                     do_full_rotation(client, state, direction=1)
                     state.running = False
                     draw_ui(stdscr, state)
+                    state.set_enable(False)
                 elif ch == ord("F"):
+                    state.set_enable(True)
                     state.running = True
                     state.running_dir = -1
                     draw_ui(stdscr, state)
                     do_full_rotation(client, state, direction=-1)
                     state.running = False
                     draw_ui(stdscr, state)
+                    state.set_enable(False)
                 elif ch == ord("s"):
+                    state.set_enable(True)
                     state.running = True
                     state.running_dir = 1
                     draw_ui(stdscr, state)
                     do_step(client, state, direction=1)
                     state.running = False
                     draw_ui(stdscr, state)
+                    state.set_enable(False)
                 elif ch == ord("S"):
+                    state.set_enable(True)
                     state.running = True
                     state.running_dir = -1
                     draw_ui(stdscr, state)
                     do_step(client, state, direction=-1)
                     state.running = False
                     draw_ui(stdscr, state)
+                    state.set_enable(False)
                 elif ch == ord("r"):
+                    state.set_enable(True)
                     do_run(client, state, direction=1)
                 elif ch == ord("R"):
+                    state.set_enable(True)
                     do_run(client, state, direction=-1)
                 elif ch == curses.KEY_UP:
                     adjust_speed(client, state, 0.2)
