@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pysfoc import PacketCommanderClient  # type: ignore[import-not-found]
-from pysfoc.constants import (
+from pysfoc.constants import (  # type: ignore[import-not-found]
     DEFAULT_TELEM_REGS,
     REG_NAME_MAP,
     REG_VALUE_FIELDS,

@@ -4,13 +4,27 @@ import time
 import math
 from typing import Optional
 
-from pysfoc import (
-    PacketCommanderClient,  # type: ignore[import-not-found]
+from pysfoc import (  # type: ignore[import-not-found]
+    PacketCommanderClient,
     MotorState,
     CONTROL_MODE_IDS,
+    CONTROL_MODE_NAMES,
 )
-from pysfoc.constants import CONTROL_MODE_SEQUENCE, REG_ANGLE, REG_STATUS, REG_TARGET, REGISTER_IDS  # type: ignore[import-not-found]
-from pysfoc.constants import REG_NAME_MAP, TORQUE_MODE_NAMES  # type: ignore[import-not-found]
+from pysfoc.constants import (  # type: ignore[import-not-found]
+    CONTROL_MODE_SEQUENCE,
+    REG_ANGLE,
+    REG_CONTROL_MODE,
+    REG_STATUS,
+    REG_TARGET,
+    REGISTER_IDS,
+    REG_VELOCITY,
+    REG_POSITION,
+    REG_VEL_PID_P,
+    REG_VEL_PID_I,
+    REG_VEL_PID_D,
+    REG_VEL_PID_LIMIT,
+)
+from pysfoc.constants import REG_NAME_MAP, TORQUE_MODE_NAMES, STATUS_NAMES  # type: ignore[import-not-found]
 
 
 def reg_display_name(reg_id: int) -> str:
@@ -92,50 +106,80 @@ def adjust_target(client: PacketCommanderClient, state: MotorState, delta: float
         state.set_target(state.running_dir * state.target)
 
 
-def draw_ui(stdscr, state: MotorState) -> None:
+def draw_ui(stdscr, state: MotorState, message: str = "") -> None:
+    def _as_int(val: object):
+        return int(val) if isinstance(val, (int, float)) else None
+
     stdscr.erase()
-    stdscr.addstr(0, 0, "PySimpleFOC UART test")
-    stdscr.addstr(1, 0, "q: quit | f/F: full CW/CCW | s/S: +10/-10 deg | r/R: run fwd/rev | SPACE: stop | m: cycle mode")
-    stdscr.addstr(2, 0, "UP/DOWN: change target")
+    # Top bar
     cmode_display = state.control_mode_val if state.control_mode_val is not None else state.control_mode
-    open_loop_flag = None
-    if cmode_display is not None:
-        open_loop_flag = cmode_display in CONTROL_MODE_SEQUENCE[-2:]
-    elif state.open_loop is not None:
-        open_loop_flag = state.open_loop
-    cmode_name = state.control_mode and str(state.control_mode) or "unknown"
-    open_loop_txt = "yes" if open_loop_flag else ("no" if open_loop_flag is not None else "unknown")
-    stdscr.addstr(4, 0, f"Control mode: {cmode_name} (open-loop: {open_loop_txt})")
-    stdscr.addstr(5, 0, f"Target: {state.target:.2f}")
-    if state.running:
-        stdscr.addstr(6, 0, f"Running: {'CW' if state.running_dir > 0 else 'CCW'}")
-    else:
-        stdscr.addstr(6, 0, "Running: no")
-    stdscr.addstr(7, 0, f"Status regs: control {state.control_mode_val}, torque {state.torque_mode_val}, status {state.status_val}")
-    line = 8
+    cmode_name = CONTROL_MODE_NAMES.get(cmode_display, str(cmode_display)) if cmode_display is not None else "unknown"
+    enabled_txt = "ENABLED" if state.enable_val else "disabled"
+    dir_txt = "CW" if state.running_dir > 0 else ("CCW" if state.running_dir < 0 else "stop")
+    stdscr.addstr(0, 0, f"Mode: {cmode_name} | Motor: {enabled_txt} | Target: {state.target:.3f} | Dir: {dir_txt}")
+
+    # Keybindings
+    stdscr.addstr(1, 0, "SPACE enable/disable | m cycle mode | ↑/↓ target | PgUp/PgDn big step | f/F full rot | s/S step | r/R run | g plot | q quit")
+
+    # Telemetry pane
+    line = 3
     if state.telemetry:
         t = state.telemetry
-        stdscr.addstr(line, 0, f"Telemetry (age {(time.time() - t.timestamp):.1f}s):")
+        age = (time.time() - t.timestamp)
+        stdscr.addstr(line, 0, f"Telemetry age {age:.1f}s")
         line += 1
-        for (motor_idx, reg_id) in t.regs:
-            if motor_idx != 0:
-                continue
-            name = REG_NAME_MAP.get(reg_id, f"reg{reg_id}")
-            val = t.values.get(reg_id)
-            if isinstance(val, list):
-                disp = "/".join(f"{v:.4f}" for v in val)
-            elif reg_id == REG_STATUS and isinstance(val, (int, float)):
-                disp = str(int(val))
-            elif reg_id == REGISTER_IDS["torque_mode"] and isinstance(val, (int, float)):
-                disp = TORQUE_MODE_NAMES.get(int(val), f"0x{int(val):02X}")
-            elif reg_id == REG_CONTROL_MODE and isinstance(val, (int, float)):
-                disp = CONTROL_MODE_SEQUENCE[int(val)] if int(val) < len(CONTROL_MODE_SEQUENCE) else str(val)
-            elif isinstance(val, float):
-                disp = f"{val:.4f}"
-            else:
-                disp = "n/a"
-            stdscr.addstr(line, 0, f"  {name}: {disp}")
-            line += 1
+        tgt = t.values.get(REG_TARGET)
+        vel = t.values.get(REG_VELOCITY)
+        ang = t.values.get(REG_ANGLE)
+        pos = t.values.get(REG_POSITION)
+        stdscr.addstr(
+            line,
+            0,
+            f"  Target: {tgt!s:>10}  Velocity: {vel!s:>10}  Angle: {ang!s:>10}  Position: {pos!s:>10}",
+        )
+        line += 1
+        en = t.values.get(REGISTER_IDS["enable"])
+        status = t.values.get(REG_STATUS)
+        torque = t.values.get(REGISTER_IDS["torque_mode"])
+        cmod = t.values.get(REG_CONTROL_MODE)
+        # Fallback to last known state values if telemetry missing
+        if en is None and state.enable_val is not None:
+            en = state.enable_val
+        if status is None and state.status_val is not None:
+            status = state.status_val
+        if torque is None and state.torque_mode_val is not None:
+            torque = state.torque_mode_val
+        if cmod is None and state.control_mode_val is not None:
+            cmod = state.control_mode_val
+        status_int = _as_int(status)
+        torque_int = _as_int(torque)
+        cmod_int = _as_int(cmod)
+        status_txt = STATUS_NAMES.get(status_int, status_int) if status_int is not None else "n/a"
+        torque_txt = TORQUE_MODE_NAMES.get(torque_int, torque_int) if torque_int is not None else "n/a"
+        cmod_txt = CONTROL_MODE_NAMES.get(cmod_int, cmod_int) if cmod_int is not None else "n/a"
+        en_txt = "ON" if en else "OFF"
+        stdscr.addstr(
+            line,
+            0,
+            f"  Enable: {en_txt:>6}  Status: {status_txt!s:>10}  Torque: {torque_txt!s:>10}  Control: {cmod_txt!s:>10}",
+        )
+        line += 1
+        vlim = state.client.read_reg(0x50)
+        vellim = state.client.read_reg(0x52)
+        pidp = state.client.read_reg(REG_VEL_PID_P)
+        pidi = state.client.read_reg(REG_VEL_PID_I)
+        pidd = state.client.read_reg(REG_VEL_PID_D)
+        pidlim = state.client.read_reg(REG_VEL_PID_LIMIT)
+        stdscr.addstr(line, 0, f"  V_limit: {vlim!s:>10}  Vel_limit: {vellim!s:>10}")
+        line += 1
+        stdscr.addstr(
+            line, 0, f"  PID P: {pidp!s:>8}  I: {pidi!s:>8}  D: {pidd!s:>8}  Limit: {pidlim!s:>8}"
+        )
+        line += 1
     else:
         stdscr.addstr(line, 0, "Telemetry: none received yet")
+        line += 1
+
+    if message:
+        stdscr.addstr(line + 1, 0, f"Status: {message}")
     stdscr.refresh()

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import time
 
-from pysfoc.packet_commander import PacketCommanderClient  # type: ignore[import-not-found]
-from pysfoc.api import MotorState  # type: ignore[import-not-found]
-from pysfoc.constants import REGISTER_IDS  # type: ignore[import-not-found]
+from pysfoc.packet_commander import PacketCommanderClient  
+from pysfoc.api import MotorState  
+from pysfoc.constants import REGISTER_IDS  
 
 
 def sensor_calibration_menu(client: PacketCommanderClient, state: MotorState) -> None:
