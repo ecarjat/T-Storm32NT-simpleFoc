@@ -8,3 +8,4 @@ cli/.venv/
 tmp/
 */__pycache__/
 *.pyc
+output/
