@@ -5,7 +5,8 @@ Interactive PySimpleFOC PacketCommander client for the T-STorM32 SimpleFOC drive
 Features:
 - Full rotation CW/CCW
 - 10° step CW/CCW
-- Slow run CW/CCW with speed adjust via up/down arrows
+- Slow run CW/CCW with target adjust via up/down arrows
+- Velocity PID tuning helper (P/p I/i D/d adjust, live target/velocity graph)
 
 It talks the text PacketCommander protocol over UART (PA9/PA10). Works with or without encoder:
 - If encoder is available (control mode angle supported), uses angle moves.
@@ -15,352 +16,52 @@ It talks the text PacketCommander protocol over UART (PA9/PA10). Works with or w
 import argparse
 from collections import deque
 import math
-import re
 import sys
 import time
-from dataclasses import dataclass
 from typing import Dict, List, Optional, Union
 
-import serial  # pyserial
-
-# PacketCommander register IDs (SimpleFOCRegisters.h)
-REGISTER_IDS = {
-    "status": 0x00,
-    "target": 0x01,
-    "enable": 0x04,
-    "control_mode": 0x05,
-    "torque_mode": 0x06,
-    "angle": 0x09,
-    "position": 0x10,
-    "velocity": 0x11,
-    "telemetry_ctrl": 0x1B,
-    "telemetry_downsample": 0x1C,
-}
-REG_STATUS = REGISTER_IDS["status"]
-REG_TARGET = REGISTER_IDS["target"]
-REG_ENABLE = REGISTER_IDS["enable"]
-REG_CONTROL_MODE = REGISTER_IDS["control_mode"]
-REG_ANGLE = REGISTER_IDS["angle"]
-REG_POSITION = REGISTER_IDS["position"]
-REG_VELOCITY = REGISTER_IDS["velocity"]
-
-READ_REGEX = re.compile(r"r(?P<reg>\d+)\s*=\s*(?P<val>[-+0-9.eE]+)")
-TELEM_HEADER_REGEX = re.compile(r"H(?P<tid>\d+)=?(?P<body>.*)")
-TELEM_DATA_REGEX = re.compile(r"T(?P<tid>\d+)=?(?P<body>.*)")
-DEFAULT_TELEM_REGS = [
-    (0, REG_TARGET),
-    (0, REG_ANGLE),
-    (0, REG_POSITION),  # Sensor position (rotations + angle)
-    (0, REG_VELOCITY),
-    (0, REG_STATUS),
-]
-REG_NAME_MAP = {val: name for name, val in REGISTER_IDS.items()}
-REG_NAME_MAP.update(
-    {
-        0x10: "sensor_position",  # rotations + angle
-        0x12: "sensor_angle",
-        0x13: "sensor_mech_angle",
-        0x14: "sensor_velocity",
-        0x15: "sensor_ts",
-        0x52: "velocity_limit",
-        0x50: "voltage_limit",
-        0x53: "driver_voltage_limit",
-        0x55: "driver_voltage_psu",
-        0x63: "pole_pairs",
-    }
+from pysfoc import (
+    PacketCommanderClient,
+    MotorState,
+    TelemetrySample,
+    CONTROL_MODE_IDS,
+    CONTROL_MODE_NAMES,
+    OPENLOOP_MODES,
+    REG_CONTROL_MODE,
+    REG_ENABLE,
+    REG_TARGET,
+    REG_VELOCITY,
+    REG_VEL_PID_P,
+    REG_VEL_PID_I,
+    REG_VEL_PID_D,
+    map_control_mode,
+    map_status,
 )
-REG_VALUE_FIELDS = {
-    0x10: 2,  # position register returns rotations + angle rad
-}
-STATUS_NAMES = {
-    0x00: "uninitialized",
-    0x01: "initializing",
-    0x02: "uncalibrated",
-    0x03: "calibrating",
-    0x04: "ready",
-    0x08: "error",
-    0x0E: "calib_failed",
-    0x0F: "init_failed",
-}
-TORQUE_MODE_NAMES = {
-    0x00: "voltage",
-    0x01: "dc_current",
-    0x02: "foc_current",
-}
-CONTROL_MODE_IDS = {
-    "torque": 0,
-    "velocity": 1,
-    "angle": 2,
-    "vel_openloop": 3,
-    "angle_openloop": 4,
-}
-CONTROL_MODE_NAMES = {v: k for k, v in CONTROL_MODE_IDS.items()}
-OPENLOOP_MODES = {CONTROL_MODE_IDS["vel_openloop"], CONTROL_MODE_IDS["angle_openloop"]}
-CONTROL_MODE_SEQUENCE = [
-    CONTROL_MODE_IDS["angle"],
-    CONTROL_MODE_IDS["velocity"],
-    CONTROL_MODE_IDS["vel_openloop"],
-]
+from pysfoc.constants import (
+    CONTROL_MODE_SEQUENCE,
+    DEFAULT_TELEM_REGS,
+    REG_ANGLE,
+    REG_NAME_MAP,
+    REG_POSITION,
+    REG_SENSOR_MECH_ANGLE,
+    REG_STATUS,
+    REG_TELEMETRY_CTRL,
+    REG_TELEMETRY_DOWNSAMPLE,
+    REG_VALUE_FIELDS,
+    STATUS_NAMES,
+    REGISTER_IDS,
+    TORQUE_MODE_NAMES,
+)
 
 
 def reg_display_name(reg_id: int) -> str:
     return REG_NAME_MAP.get(reg_id, f"reg{reg_id}")
 
 
-def map_control_mode(val: Optional[int]) -> str:
-    if val is None:
-        return "n/a"
-    return CONTROL_MODE_NAMES.get(int(val), f"0x{int(val):02X}")
-
-
 def map_torque_mode(val: Optional[int]) -> str:
     if val is None:
         return "n/a"
     return TORQUE_MODE_NAMES.get(int(val), f"0x{int(val):02X}")
-
-
-def map_status(val: Optional[int]) -> str:
-    if val is None:
-        return "n/a"
-    return STATUS_NAMES.get(int(val), f"0x{int(val):02X}")
-
-
-@dataclass
-class MotorState:
-    client: "PacketCommanderClient"
-    control_mode: Optional[int] = None  # populated after reading REG_CONTROL_MODE
-    open_loop: Optional[bool] = None    # derived from control_mode
-    run_velocity: float = 1.0  # rad/s for slow run
-    running: bool = False
-    running_dir: int = 1
-    telemetry: Optional["TelemetrySample"] = None
-    control_mode_val: Optional[int] = None
-    torque_mode_val: Optional[int] = None
-    status_val: Optional[int] = None
-    enable_val: Optional[int] = None
-    target_val: Optional[float] = None
-
-    def _write_and_confirm(self, reg: int, value):
-        """Write register and confirm via echoed response."""
-        resp = self.client.write_reg(reg, value)
-        return resp if resp is not None else None
-
-    def refresh_status(self):
-        cm = self.client.read_reg(REG_CONTROL_MODE)
-        if cm is not None:
-            self.control_mode = int(cm)
-            self.control_mode_val = int(cm)
-            self.open_loop = self.control_mode in OPENLOOP_MODES
-        tm = self.client.read_reg(REGISTER_IDS["torque_mode"])
-        if tm is not None:
-            self.torque_mode_val = int(tm)
-        st = self.client.read_reg(REG_STATUS)
-        if st is not None:
-            self.status_val = int(st)
-        en = self.client.read_reg(REG_ENABLE)
-        if en is not None:
-            self.enable_val = int(en)
-
-    def set_control_mode(self, mode: int):
-        resp = self._write_and_confirm(REG_CONTROL_MODE, mode)
-        if resp is not None:
-            mode_int = int(resp)
-            self.control_mode = mode_int
-            self.control_mode_val = mode_int
-            self.open_loop = mode_int in OPENLOOP_MODES
-        return resp
-
-    def set_torque_mode(self, mode: int):
-        resp = self._write_and_confirm(REGISTER_IDS["torque_mode"], mode)
-        if resp is not None:
-            self.torque_mode_val = int(resp)
-        return resp
-
-    def set_enable(self, enable: bool):
-        resp = self._write_and_confirm(REG_ENABLE, 1 if enable else 0)
-        if resp is not None:
-            self.enable_val = int(resp)
-        return resp
-
-    def set_target(self, target: float):
-        resp = self._write_and_confirm(REG_TARGET, target)
-        if resp is not None:
-            self.target_val = float(resp)
-        return resp
-
-
-@dataclass
-class TelemetrySample:
-    regs: List[tuple[int, int]]
-    values: Dict[int, Union[float, List[float]]]
-    timestamp: float = 0.0
-
-
-class PacketCommanderClient:
-    def __init__(self, port: str, baud: int, timeout: float = 0.3):
-        self.ser = serial.Serial(port, baudrate=baud, timeout=timeout)
-        # Default mapping matches firmware telemetry_registers order in comms_streams.cpp
-        self.telemetry_headers: Dict[int, List[tuple[int, int]]] = {0: DEFAULT_TELEM_REGS.copy()}
-
-    def close(self):
-        try:
-            self.ser.close()
-        except Exception:
-            pass
-
-    def _write_line(self, line: str):
-        self.ser.write((line + "\n").encode("ascii"))
-
-    def _read_response(self, expect_reg: int, timeout: float = 0.5):
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            raw = self.ser.readline()
-            if not raw:
-                continue
-            try:
-                line = raw.decode("ascii", errors="ignore").strip()
-            except Exception:
-                continue
-            m = READ_REGEX.match(line)
-            if not m:
-                continue
-            reg = int(m.group("reg"))
-            if reg != expect_reg:
-                continue
-            try:
-                return float(m.group("val"))
-            except ValueError:
-                return None
-        return None
-
-    def read_reg(self, reg: int):
-        self._write_line(f"R{reg}")
-        return self._read_response(reg)
-
-    def write_reg(self, reg: int, value):
-        self._write_line(f"R{reg}={value}")
-        # echo is enabled in firmware; optionally read back
-        return self._read_response(reg, timeout=0.5)
-
-    def _parse_telem_header(self, line: str):
-        m = TELEM_HEADER_REGEX.match(line)
-        if not m:
-            return
-        tid = int(m.group("tid"))
-        body = m.group("body")
-        if not body:
-            return
-        regs: List[tuple[int, int]] = []
-        for part in body.split(","):
-            try:
-                motor_str, reg_str = part.split(":")
-                regs.append((int(motor_str), int(reg_str)))
-            except ValueError:
-                continue
-        if regs:
-            self.telemetry_headers[tid] = regs
-
-    def _parse_telem_frame(self, line: str) -> Optional[TelemetrySample]:
-        m = TELEM_DATA_REGEX.match(line)
-        if not m:
-            return None
-        tid = int(m.group("tid"))
-        body = m.group("body")
-        if body is None:
-            return None
-        reg_map = self.telemetry_headers.get(tid, DEFAULT_TELEM_REGS if tid == 0 else None)
-        if not reg_map:
-            return None
-        values = body.split(",") if body else []
-        idx = 0
-        sample = TelemetrySample(regs=list(reg_map), values={}, timestamp=time.time())
-        for (motor_idx, reg_id) in reg_map:
-            needed = REG_VALUE_FIELDS.get(reg_id, 1)
-            if idx + needed > len(values):
-                return None
-            chunk = values[idx:idx + needed]
-            idx += needed
-            parsed: List[float] = []
-            for raw in chunk:
-                try:
-                    parsed.append(float(raw))
-                except ValueError:
-                    parsed.append(float("nan"))
-            if motor_idx != 0:
-                continue  # CLI only tracks motor 0
-            if needed == 1:
-                if reg_id in (REG_STATUS, REG_ENABLE, 0x06, 0x05):
-                    sample.values[reg_id] = int(parsed[0])
-                else:
-                    sample.values[reg_id] = parsed[0]
-            else:
-                sample.values[reg_id] = parsed
-        return sample
-
-    def poll_telemetry(self) -> Optional[TelemetrySample]:
-        """Non-blocking poll for telemetry packets. Returns the most recent sample if any."""
-        latest: Optional[TelemetrySample] = None
-        try:
-            while self.ser.in_waiting:
-                raw = self.ser.readline()
-                if not raw:
-                    break
-                try:
-                    line = raw.decode("ascii", errors="ignore").strip()
-                except Exception:
-                    continue
-                if not line:
-                    continue
-                if line.startswith("H"):
-                    self._parse_telem_header(line)
-                    continue
-                if line.startswith("T"):
-                    sample = self._parse_telem_frame(line)
-                    if sample:
-                        latest = sample
-        except Exception:
-            # Swallow serial errors in telemetry path to avoid breaking UI
-            return latest
-        return latest
-
-    def set_telemetry_registers(self, regs: List[int], motor: int = 0):
-        """Configure telemetry registers on the MCU (REG_TELEMETRY_REG)."""
-        try:
-            self.ser.reset_input_buffer()
-        except Exception:
-            pass
-        num = len(regs)
-        parts = [str(num)]
-        for r in regs:
-            parts.append(str(motor))
-            parts.append(str(r))
-        line = "R26=" + ",".join(parts)  # 0x1A = 26 decimal
-        self._write_line(line)
-        # Update local mapping and ask MCU to re-send header
-        self.telemetry_headers[motor] = [(motor, r) for r in regs]
-        self._write_line("R26")  # reading REG_TELEMETRY_REG triggers header resend
-
-    def save_settings(self):
-        # Custom packet: "S1" triggers flash save on MCU and responds with SAVE_OK/SAVE_ERR
-        try:
-            self.ser.reset_input_buffer()
-        except Exception:
-            pass
-        self._write_line("S1")
-        deadline = time.time() + 2.0
-        while time.time() < deadline:
-            line = self.ser.readline()
-            if not line:
-                continue
-            try:
-                text = line.decode("ascii", errors="ignore").strip()
-            except Exception:
-                continue
-            if text.startswith("SAVE_OK"):
-                return True
-            if text.startswith("SAVE_ERR"):
-                return False
-        return None
 
 
 def setup_motor(client: PacketCommanderClient, state: MotorState):
@@ -392,7 +93,7 @@ def do_full_rotation(client: PacketCommanderClient, state: MotorState, direction
         state.set_target(target)
     else:
         # Velocity/open-loop: command velocity for one rotation duration
-        speed = max(abs(state.run_velocity), 0.5) * direction
+        speed = max(abs(state.target), 0.5) * direction
         state.set_target(speed)
         duration = 2 * math.pi / max(abs(speed), 0.1)
         time.sleep(duration)
@@ -411,7 +112,7 @@ def do_step(client: PacketCommanderClient, state: MotorState, direction: int, de
         target = current + direction * math.radians(deg)
         state.set_target(target)
     else:
-        speed = max(abs(state.run_velocity), 0.5) * direction
+        speed = max(abs(state.target), 0.5) * direction
         step_rad = math.radians(deg)
         duration = step_rad / max(abs(speed), 0.1)
         state.set_target(speed)
@@ -423,9 +124,7 @@ def do_step(client: PacketCommanderClient, state: MotorState, direction: int, de
 def do_run(client: PacketCommanderClient, state: MotorState, direction: int):
     state.running = True
     state.running_dir = direction
-    target = direction * state.run_velocity
-    desired_mode = CONTROL_MODE_IDS["vel_openloop"] if state.open_loop else CONTROL_MODE_IDS["velocity"]
-    state.set_control_mode(desired_mode)
+    target = direction * state.target
     state.set_target(target)
 
 
@@ -434,17 +133,17 @@ def stop_run(client: PacketCommanderClient, state: MotorState):
     state.set_target(0.0)
 
 
-def adjust_speed(client: PacketCommanderClient, state: MotorState, delta: float):
-    state.run_velocity = max(0.1, state.run_velocity + delta)
+def adjust_target(client: PacketCommanderClient, state: MotorState, delta: float):
+    state.target = max(0.0, state.target + delta)
     if state.running:
-        state.set_target(state.running_dir * state.run_velocity)
+        state.set_target(state.running_dir * state.target)
 
 
 def draw_ui(stdscr, state: MotorState):
     stdscr.erase()
     stdscr.addstr(0, 0, "PySimpleFOC UART test")
     stdscr.addstr(1, 0, "q: quit | f/F: full CW/CCW | s/S: +10/-10 deg | r/R: run fwd/rev | SPACE: stop | m: cycle mode")
-    stdscr.addstr(2, 0, "UP/DOWN: change run speed")
+    stdscr.addstr(2, 0, "UP/DOWN: change target")
     cmode_display = state.control_mode_val if state.control_mode_val is not None else state.control_mode
     open_loop_flag = None
     if cmode_display is not None:
@@ -454,7 +153,7 @@ def draw_ui(stdscr, state: MotorState):
     cmode_name = map_control_mode(cmode_display) if cmode_display is not None else "unknown"
     open_loop_txt = "yes" if open_loop_flag else ("no" if open_loop_flag is not None else "unknown")
     stdscr.addstr(4, 0, f"Control mode: {cmode_name} (open-loop: {open_loop_txt})")
-    stdscr.addstr(5, 0, f"Run speed: {state.run_velocity:.2f} rad/s")
+    stdscr.addstr(5, 0, f"Target: {state.target:.2f}")
     if state.running:
         stdscr.addstr(6, 0, f"Running: {'CW' if state.running_dir > 0 else 'CCW'}")
     else:
@@ -473,7 +172,7 @@ def draw_ui(stdscr, state: MotorState):
             if isinstance(val, list):
                 disp = "/".join(f"{v:.4f}" for v in val)
             elif reg_id == REG_STATUS and isinstance(val, (int, float)):
-                disp = STATUS_NAMES.get(int(val), f"0x{int(val):02X}")
+                disp = map_status(int(val))
             elif reg_id == REGISTER_IDS["torque_mode"] and isinstance(val, (int, float)):
                 disp = TORQUE_MODE_NAMES.get(int(val), f"0x{int(val):02X}")
             elif reg_id == REG_CONTROL_MODE and isinstance(val, (int, float)):
@@ -497,6 +196,11 @@ def main():
 
     client = PacketCommanderClient(args.port, args.baud)
     state = MotorState(client)
+    # Ensure motor starts disabled for safety.
+    try:
+        state.set_enable(False)
+    except Exception:
+        pass
     setup_motor(client, state)
 
     import curses
@@ -575,9 +279,9 @@ def main():
                     state.set_enable(True)
                     do_run(client, state, direction=-1)
                 elif ch == curses.KEY_UP:
-                    adjust_speed(client, state, 0.2)
+                    adjust_target(client, state, 0.2)
                 elif ch == curses.KEY_DOWN:
-                    adjust_speed(client, state, -0.2)
+                    adjust_target(client, state, -0.2)
                 elif ch == ord(" "):
                     stop_run(client, state)
                 elif ch == ord("m"):
@@ -642,19 +346,19 @@ def main():
             ),
             (
                 "Vel PID P",
-                0x30,
+                REG_VEL_PID_P,
                 "Velocity loop P gain.",
                 "Proportional gain of the velocity PID (PID_velocity.P). Too high causes oscillation; too low feels sluggish.",
             ),
             (
                 "Vel PID I",
-                0x31,
+                REG_VEL_PID_I,
                 "Velocity loop I gain.",
                 "Integral gain of the velocity PID (PID_velocity.I). Removes steady-state error; too high causes windup/oscillation.",
             ),
             (
                 "Vel PID D",
-                0x32,
+                REG_VEL_PID_D,
                 "Velocity loop D gain.",
                 "Derivative gain of the velocity PID (PID_velocity.D). Dampens fast changes/noise; often kept small or zero.",
             ),
@@ -878,6 +582,363 @@ def main():
                 anim.event_source.stop()
             plt.close(fig)
 
+    def sensor_plot_mode():
+        """
+        Sensor plot helper:
+        - Disables the motor.
+        - Sets control mode to torque (closed loop) and target to 1.
+        - Configures telemetry to stream shaft angle + sensor mechanical angle, both wrapped to [0, 2π).
+        - Opens a live graph with keyboard controls:
+          T/t = increase/decrease target, SPACE = enable/disable motor, q/Esc = exit.
+        """
+        print("\nEntering Sensor Plot mode:")
+        print("  - Motor disabled, control mode set to torque, target set to 1.")
+        print("  - Telemetry: shaft angle + sensor mechanical angle (both normalized 0..2π).")
+        state.refresh_status()
+        prev_control_mode = state.control_mode_val if state.control_mode_val is not None else state.control_mode
+        prev_target = state.target
+        prev_regs = [reg for motor, reg in client.telemetry_headers.get(0, DEFAULT_TELEM_REGS) if motor == 0]
+        try:
+            prev_downsample = client.read_reg(REGISTER_IDS["telemetry_downsample"])
+        except Exception:
+            prev_downsample = None
+
+        # Disable motor and stop motion, then set torque mode and target.
+        state.set_enable(False)
+        stop_run(client, state)
+        state.set_control_mode(CONTROL_MODE_IDS["torque"])
+        target_val = 1.0
+        state.target = target_val
+        state.set_target(target_val)
+        client.set_telemetry_registers([REG_ANGLE, REG_SENSOR_MECH_ANGLE])
+        client.write_reg(REGISTER_IDS["telemetry_downsample"], 100)
+        state.refresh_status()
+        state.running = False
+        state.open_loop = False
+        state.telemetry = None
+
+        try:
+            import matplotlib.pyplot as plt  # type: ignore
+            from matplotlib.animation import FuncAnimation  # type: ignore
+        except Exception as e:
+            print("matplotlib is required for sensor plotting. Install with `pip install matplotlib`.")
+            print(f"Import error: {e}")
+            return
+
+        window = 10.0
+        regs_sel = [REG_ANGLE, REG_SENSOR_MECH_ANGLE]
+        times = {r: deque(maxlen=5000) for r in regs_sel}
+        values = {r: deque(maxlen=5000) for r in regs_sel}
+        t0 = time.time()
+
+        fig, ax = plt.subplots(figsize=(9, 4))
+        colors = {REG_ANGLE: "C0", REG_SENSOR_MECH_ANGLE: "C1"}
+        labels = {REG_ANGLE: "shaft_angle", REG_SENSOR_MECH_ANGLE: "sensor_mech_angle"}
+        lines = {r: ax.plot([], [], label=labels[r], color=colors[r])[0] for r in regs_sel}
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Angle (rad, 0..2π)")
+        ax.legend(loc="upper right")
+        ax.grid(True)
+        ax.set_ylim(0, 2 * math.pi)
+
+        TARGET_STEP = 0.1
+        running_flag = False
+
+        status_text = ax.text(0.01, 0.99, "", transform=ax.transAxes, va="top", ha="left")
+
+        def norm_angle(rad_val: float) -> float:
+            wrapped = math.fmod(rad_val, 2 * math.pi)
+            if wrapped < 0:
+                wrapped += 2 * math.pi
+            return wrapped
+
+        def update_status_text():
+            status_text.set_text(
+                f"Target {target_val:.3f} | Motor {'ENABLED' if running_flag else 'disabled'}"
+            )
+
+        def set_motor_enabled(enabled: bool):
+            nonlocal running_flag
+            running_flag = enabled
+            state.set_enable(enabled)
+            if enabled:
+                state.set_target(target_val)
+            else:
+                state.set_target(0.0)
+            update_status_text()
+
+        def adjust_target(delta: float):
+            nonlocal target_val
+            target_val += delta
+            state.target = target_val
+            state.set_target(target_val)
+            update_status_text()
+
+        def on_key(event):
+            if not event.key:
+                return
+            key = event.key
+            if key in (" ", "space"):
+                set_motor_enabled(not running_flag)
+            elif key in ("q", "escape"):
+                plt.close(fig)
+            elif key == "T":
+                adjust_target(TARGET_STEP)
+            elif key == "t":
+                adjust_target(-TARGET_STEP)
+
+        def update(frame):
+            telem = client.poll_telemetry()
+            now = time.time()
+            if telem:
+                state.telemetry = telem
+                for r in regs_sel:
+                    val = telem.values.get(r)
+                    if isinstance(val, (int, float)):
+                        t_rel = telem.timestamp - t0
+                        times[r].append(t_rel)
+                        values[r].append(norm_angle(float(val)))
+            for r in regs_sel:
+                while times[r] and (now - t0) - times[r][0] > window:
+                    times[r].popleft()
+                    values[r].popleft()
+                lines[r].set_data(list(times[r]), list(values[r]))
+            max_time = max((times[r][-1] for r in times if times[r]), default=window)
+            ax.set_xlim(max(0, max_time - window), max(max_time, window))
+            return list(lines.values())
+
+        update_status_text()
+        cid = fig.canvas.mpl_connect("key_press_event", on_key)
+        anim = FuncAnimation(fig, update, interval=100, blit=False, cache_frame_data=False)
+        try:
+            plt.show()
+        finally:
+            try:
+                fig.canvas.mpl_disconnect(cid)
+            except Exception:
+                pass
+            if getattr(anim, "event_source", None):
+                anim.event_source.stop()
+            plt.close(fig)
+            # Restore prior settings
+            stop_run(client, state)
+            state.set_enable(False)
+            if prev_control_mode is not None:
+                state.set_control_mode(prev_control_mode)
+            if prev_target is not None:
+                state.set_target(prev_target)
+            if prev_regs:
+                client.set_telemetry_registers(prev_regs)
+            if prev_downsample is not None:
+                try:
+                    client.write_reg(REGISTER_IDS["telemetry_downsample"], int(prev_downsample))
+                except Exception:
+                    pass
+            state.refresh_status()
+
+    def pid_tune_mode():
+        """
+        Velocity PID tuning helper:
+        - Disables the motor.
+        - Zeros velocity PID P/I/D registers.
+        - Sets target to 5 rad/s and control mode to closed-loop velocity.
+        - Configures telemetry to Target + Velocity.
+        - Opens a live graph with keyboard controls:
+          P/p, I/i, D/d = increase/decrease respective gains, SPACE = enable/disable motor, q/Esc = exit.
+        """
+        print("\nEntering PID tuning mode:")
+        print("  - Motor will be disabled, velocity PID gains zeroed, target set to 5 rad/s.")
+        print("  - Telemetry will stream target and velocity. Use matplotlib window keys:")
+        print("    P/p, I/i, D/d to adjust gains; SPACE to enable/disable; q or Esc to quit.\n")
+        state.refresh_status()
+        prev_control_mode = state.control_mode_val if state.control_mode_val is not None else state.control_mode
+        prev_target = state.target
+        prev_regs = [reg for motor, reg in client.telemetry_headers.get(0, DEFAULT_TELEM_REGS) if motor == 0]
+        try:
+            prev_downsample = client.read_reg(REGISTER_IDS["telemetry_downsample"])
+        except Exception:
+            prev_downsample = None
+
+        # 1) Disable motor and stop motion.
+        state.set_enable(False)
+        stop_run(client, state)
+
+        # 2) Zero PID gains.
+        for reg in (REG_VEL_PID_P, REG_VEL_PID_I, REG_VEL_PID_D):
+            client.write_reg(reg, 0.0)
+
+        # 3) Set target to 5 rad/s and switch to closed-loop velocity.
+        pid_target = 5.0
+        state.target = pid_target
+        state.set_target(pid_target)
+        client.set_telemetry_registers([REG_TARGET, REG_VELOCITY])
+        client.write_reg(REGISTER_IDS["telemetry_downsample"], 100)
+        state.set_control_mode(CONTROL_MODE_IDS["velocity"])
+        state.refresh_status()
+        state.running = False
+        state.open_loop = False
+        state.telemetry = None
+
+        try:
+            import matplotlib.pyplot as plt  # type: ignore
+            from matplotlib.animation import FuncAnimation  # type: ignore
+        except Exception as e:
+            print("matplotlib is required for PID tuning graph. Install with `pip install matplotlib`.")
+            print(f"Import error: {e}")
+            return
+
+        window = 10.0
+        times = {REG_TARGET: deque(maxlen=5000), REG_VELOCITY: deque(maxlen=5000)}
+        values = {REG_TARGET: deque(maxlen=5000), REG_VELOCITY: deque(maxlen=5000)}
+        t0 = time.time()
+
+        fig, ax = plt.subplots(figsize=(9, 4))
+        lines = {
+            REG_TARGET: ax.plot([], [], label="target", color="C0")[0],
+            REG_VELOCITY: ax.plot([], [], label="velocity", color="C1")[0],
+        }
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Value")
+        ax.legend(loc="upper right")
+        ax.grid(True)
+
+        def read_gain(reg, fallback=0.0):
+            """Read a gain; fall back to last cached value instead of zeroing on timeout."""
+            val = client.read_reg(reg)
+            return float(val) if val is not None else fallback
+
+        pid_values = {
+            REG_VEL_PID_P: read_gain(REG_VEL_PID_P, 0.0),
+            REG_VEL_PID_I: read_gain(REG_VEL_PID_I, 0.0),
+            REG_VEL_PID_D: read_gain(REG_VEL_PID_D, 0.0),
+        }
+        running_flag = False
+
+        status_text = ax.text(0.01, 0.99, "", transform=ax.transAxes, va="top", ha="left")
+
+        def update_status_text():
+            status_text.set_text(
+                f"P {pid_values[REG_VEL_PID_P]:.3f}  I {pid_values[REG_VEL_PID_I]:.3f}  D {pid_values[REG_VEL_PID_D]:.3f}\n"
+                f"Motor {'ENABLED' if running_flag else 'disabled'} | Target {pid_target:.2f} rad/s"
+            )
+
+        def set_motor_enabled(enabled: bool):
+            nonlocal running_flag
+            running_flag = enabled
+            state.set_enable(enabled)
+            if enabled:
+                state.set_target(pid_target)
+            else:
+                state.set_target(0.0)
+            update_status_text()
+
+        def adjust_gain(reg: int, delta: float):
+            # Use integer tick steps so repeated keypresses don't depend on MCU readback.
+            step = step_map.get(reg, delta if delta != 0 else 0.01)
+            ticks = pid_ticks.get(reg, int(round(pid_values.get(reg, 0.0) / step)))
+            delta_ticks = int(round(delta / step)) if step != 0 else 0
+            if delta_ticks == 0:
+                delta_ticks = 1 if delta > 0 else -1
+            ticks += delta_ticks
+            pid_ticks[reg] = ticks
+            new_val = ticks * step
+            pid_values[reg] = new_val
+            client.write_reg(reg, new_val)
+            update_status_text()
+
+        P_STEP = 0.01
+        I_STEP = 0.01
+        D_STEP = 0.01
+        step_map = {
+            REG_VEL_PID_P: P_STEP,
+            REG_VEL_PID_I: I_STEP,
+            REG_VEL_PID_D: D_STEP,
+        }
+        pid_ticks = {
+            reg: int(round(pid_values[reg] / step_map[reg]))
+            for reg in pid_values
+            if reg in step_map and step_map[reg] != 0
+        }
+
+        def on_key(event):
+            if not event.key:
+                return
+            key = event.key
+            if key in (" ", "space"):
+                set_motor_enabled(not running_flag)
+            elif key in ("q", "escape"):
+                plt.close(fig)
+            elif key == "P":
+                adjust_gain(REG_VEL_PID_P, P_STEP)
+            elif key == "p":
+                adjust_gain(REG_VEL_PID_P, -P_STEP)
+            elif key == "I":
+                adjust_gain(REG_VEL_PID_I, I_STEP)
+            elif key == "i":
+                adjust_gain(REG_VEL_PID_I, -I_STEP)
+            elif key == "D":
+                adjust_gain(REG_VEL_PID_D, D_STEP)
+            elif key == "d":
+                adjust_gain(REG_VEL_PID_D, -D_STEP)
+
+        def update(frame):
+            telem = client.poll_telemetry()
+            now = time.time()
+            if telem:
+                state.telemetry = telem
+                for reg in (REG_TARGET, REG_VELOCITY):
+                    val = telem.values.get(reg)
+                    if isinstance(val, (int, float)):
+                        t_rel = telem.timestamp - t0
+                        times[reg].append(t_rel)
+                        values[reg].append(float(val))
+            for reg in (REG_TARGET, REG_VELOCITY):
+                while times[reg] and (now - t0) - times[reg][0] > window:
+                    times[reg].popleft()
+                    values[reg].popleft()
+                lines[reg].set_data(list(times[reg]), list(values[reg]))
+            # Adjust axes
+            max_time = max((times[reg][-1] for reg in times if times[reg]), default=window)
+            ax.set_xlim(max(0, max_time - window), max(max_time, window))
+            all_vals = [val for reg_vals in values.values() for val in reg_vals]
+            if all_vals:
+                vmin = min(all_vals)
+                vmax = max(all_vals)
+                if vmin == vmax:
+                    vmin -= 0.1
+                    vmax += 0.1
+                ax.set_ylim(vmin, vmax)
+            return list(lines.values())
+
+        update_status_text()
+        cid = fig.canvas.mpl_connect("key_press_event", on_key)
+        anim = FuncAnimation(fig, update, interval=100, blit=False, cache_frame_data=False)
+        try:
+            plt.show()
+        finally:
+            try:
+                fig.canvas.mpl_disconnect(cid)
+            except Exception:
+                pass
+            if getattr(anim, "event_source", None):
+                anim.event_source.stop()
+            plt.close(fig)
+            # Restore prior settings
+            stop_run(client, state)
+            state.set_enable(False)
+            if prev_control_mode is not None:
+                state.set_control_mode(prev_control_mode)
+            if prev_target is not None:
+                state.set_target(prev_target)
+            if prev_regs:
+                client.set_telemetry_registers(prev_regs)
+            if prev_downsample is not None:
+                try:
+                    client.write_reg(REGISTER_IDS["telemetry_downsample"], int(prev_downsample))
+                except Exception:
+                    pass
+            state.refresh_status()
+
     try:
         while True:
             print("\n=== Main Menu ===")
@@ -885,6 +946,8 @@ def main():
             print("2) Test")
             print("3) Telemetry")
             print("4) Live plot telemetry")
+            print("5) Velocity PID tune")
+            print("6) Sensor plot")
             print("q) Quit")
             choice = input("Select option: ").strip().lower()
             if choice == "1":
@@ -895,6 +958,10 @@ def main():
                 telemetry_menu()
             elif choice == "4":
                 plot_menu()
+            elif choice == "5":
+                pid_tune_mode()
+            elif choice == "6":
+                sensor_plot_mode()
             elif choice == "q":
                 break
     finally:
