@@ -2,6 +2,7 @@
 #include <SimpleFOC.h>
 
 #include "board_pins.h"
+#include "calibrated_sensor.h"
 #include "comms_streams.h"
 #include "driver/tle5012b_full_duplex.h"
 #include "motor_config.h"
@@ -15,6 +16,7 @@ constexpr const char* APP_VERSION = "app_v1.0.0";
 BLDCMotor motor(motor_config::POLE_PAIRS);
 BLDCDriver3PWM driver(PHASE_U_PIN, PHASE_V_PIN, PHASE_W_PIN);
 TLE5012BFullDuplex encoder_sensor(ENC_MOSI_PIN, ENC_MISO_PIN, ENC_SCK_PIN, ENC_CS_PIN);
+StoredCalibratedSensor calibrated_sensor(encoder_sensor);
 static bool system_running = false;
 
 // No custom vector table; use Arduino's startup table
@@ -55,7 +57,7 @@ extern "C" void HardFault_Handler() {
 }
 
 // Forward declarations
-static void setup_driver_and_motor(bool use_encoder);
+static void setup_driver_and_motor(bool use_encoder, Sensor *sensor);
 static void heartbeat_led(bool running);
 
 void setup() {
@@ -86,15 +88,27 @@ void setup() {
   const bool use_encoder = BOARD_USE_ENCODER;
 
   // 3) Bring up SPI1 + encoder (3-wire DATA).
+  Sensor *active_sensor = nullptr;
   if (use_encoder) {
     encoder_sensor.init();
+    calibrated_sensor.setCalibrationData(&runtime_settings().calibration);
+    if (runtime_settings().calibration.valid &&
+        runtime_settings().calibration.lut_size == motor_config::CAL_LUT_SIZE) {
+      // Restore calibration: use calibrated wrapper.
+      motor.zero_electric_angle = runtime_settings().calibration.zero_electric_angle;
+      motor.sensor_direction = static_cast<Direction>(runtime_settings().calibration.direction);
+      active_sensor = &calibrated_sensor;
+      Serial.println("CALIBRATION_LOADED");
+    } else {
+      active_sensor = &encoder_sensor;
+    }
   }
 
   // 4) Configure driver + motor objects and run FOC alignment.
-  setup_driver_and_motor(use_encoder);
+  setup_driver_and_motor(use_encoder, active_sensor);
 
   // 5) Initialize UART streams/telemetry.
-  init_streams(motor, driver);
+  init_streams(motor, driver, encoder_sensor, calibrated_sensor);
   system_running = true;
 }
 
@@ -111,7 +125,7 @@ void loop() {
   heartbeat_led(system_running);
 }
 
-static void setup_driver_and_motor(bool use_encoder) {
+static void setup_driver_and_motor(bool use_encoder, Sensor *sensor) {
   // Apply persisted settings (or defaults) before init.
   apply_settings_to_objects(motor, driver);
 
@@ -121,11 +135,11 @@ static void setup_driver_and_motor(bool use_encoder) {
 
   // Motor configuration: with encoder = closed-loop velocity, without = open-loop velocity.
   motor.linkDriver(&driver);
-  if (use_encoder) {
-    motor.linkSensor(&encoder_sensor);
+  if (use_encoder && sensor) {
+    motor.linkSensor(sensor);
   }
 
-  motor.controller = MotionControlType::velocity_openloop;
+  motor.controller = MotionControlType::velocity;
   motor.foc_modulation = FOCModulationType::SpaceVectorPWM;
   motor.voltage_sensor_align = 3;
   // jerk control using voltage voltage ramp
@@ -141,6 +155,7 @@ static void setup_driver_and_motor(bool use_encoder) {
     motor.initFOC();
   }
   motor.target = 0.0f;
+  motor.disable();
 }
 
 static void heartbeat_led(bool running) {

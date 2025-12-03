@@ -28,6 +28,10 @@ struct PersistedSettings {
   uint32_t crc;
 };
 
+// Compile-time size check so we know the flash page still fits the struct.
+static constexpr size_t PERSISTED_SETTINGS_SIZE = sizeof(PersistedSettings);
+static_assert(PERSISTED_SETTINGS_SIZE <= 1024, "Persisted settings exceed reserved 1KB flash page");
+
 static PersistedSettings *flash_ptr() {
   return reinterpret_cast<PersistedSettings *>(SETTINGS_ADDR);
 }
@@ -88,7 +92,11 @@ bool save_settings_to_flash(const BLDCMotor &motor, const BLDCDriver3PWM &driver
   s.pid_p = motor.PID_velocity.P;
   s.pid_i = motor.PID_velocity.I;
   s.pid_d = motor.PID_velocity.D;
+  s.pid_limit = motor.PID_velocity.limit;
   s.lpf_tf = motor.LPF_velocity.Tf;
+  // also persist the current zero angle/direction in case calibration ran earlier
+  s.calibration.zero_electric_angle = motor.zero_electric_angle;
+  s.calibration.direction = static_cast<int32_t>(motor.sensor_direction);
 
   PersistedSettings blob{};
   blob.magic = SETTINGS_MAGIC;
@@ -114,5 +122,20 @@ void apply_settings_to_objects(BLDCMotor &motor, BLDCDriver3PWM &driver) {
   motor.PID_velocity.P = s.pid_p;
   motor.PID_velocity.I = s.pid_i;
   motor.PID_velocity.D = s.pid_d;
+  motor.PID_velocity.limit = s.pid_limit;
   motor.LPF_velocity.Tf = s.lpf_tf;
+  if (s.calibration.valid && s.calibration.lut_size == motor_config::CAL_LUT_SIZE) {
+    motor.zero_electric_angle = s.calibration.zero_electric_angle;
+    motor.sensor_direction = static_cast<Direction>(s.calibration.direction);
+  }
+}
+
+void set_calibration_data(const SensorCalibrationData &data) {
+  runtime_settings().calibration = data;
+}
+
+void clear_calibration_data() {
+  SensorCalibrationData empty{};
+  empty.valid = false;
+  runtime_settings().calibration = empty;
 }

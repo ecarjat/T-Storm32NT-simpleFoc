@@ -6,17 +6,14 @@
 #include <comms/telemetry/Telemetry.h>
 
 #include "board_pins.h"
+#include "calibrated_sensor.h"
 #include "runtime_settings.h"
 
 // Forward pointers/state for settings and calibration handling.
 static BLDCDriver3PWM *g_driver = nullptr;
 static BLDCMotor *g_motor = nullptr;
-static bool calibration_mode = false;
-static uint8_t calibration_stage = 0;
-static float calibration_target_angle = 0.0f;
-static float calibration_remaining = 0.0f;
-static int calibration_dir = 1;
-static unsigned long calibration_last_us = 0;
+static Sensor *g_raw_sensor = nullptr;
+static StoredCalibratedSensor *g_calibrated_sensor = nullptr;
 
 // Telemetry register set: target, angle, velocity, enable, status.
 static uint8_t telemetry_registers[] = {
@@ -26,15 +23,53 @@ static uint8_t telemetry_registers[] = {
     REG_VELOCITY,
     REG_STATUS,
 };
-static uint8_t telemetry_calib_registers[] = {
-    REG_SENSOR_TIMESTAMP,
-    REG_ANGLE,
-    REG_POSITION,
-    REG_SENSOR_MECHANICAL_ANGLE,
-};
 
 static Telemetry telemetry;
 static TextIO *stream_io = nullptr;
+
+static bool perform_sensor_calibration() {
+  if (!g_motor || !g_driver || !g_raw_sensor || !g_calibrated_sensor) {
+    Serial.println("CAL_ERR");
+    return false;
+  }
+  SensorCalibrationData data{};
+  data.lut_size = motor_config::CAL_LUT_SIZE;
+
+  // Ensure driver is enabled for calibration moves.
+  g_driver->enable();
+  bool ok = calibrate_sensor(*g_raw_sensor, *g_motor, data);
+  if (!ok) {
+    Serial.println("CAL_ERR");
+    return false;
+  }
+
+  set_calibration_data(data);
+  bool saved = save_settings_to_flash(*g_motor, *g_driver);
+
+  g_calibrated_sensor->setCalibrationData(&runtime_settings().calibration);
+  g_motor->sensor_direction = static_cast<Direction>(runtime_settings().calibration.direction);
+  g_motor->zero_electric_angle = runtime_settings().calibration.zero_electric_angle;
+  g_motor->linkSensor(g_calibrated_sensor);
+  g_motor->initFOC();
+
+  // Dump LUT for logging/verification before reporting status.
+  Serial.print("CAL_LUT[");
+  Serial.print(data.lut_size);
+  Serial.print("]=");
+  Serial.print("{");
+  for (uint16_t i = 0; i < data.lut_size; i++) {
+    if (i > 0) Serial.print(", ");
+    Serial.print(data.lut[i], 6);
+  }
+  Serial.println("}");
+  Serial.print("CAL_ZERO=");
+  Serial.println(data.zero_electric_angle, 6);
+  Serial.print("CAL_DIR=");
+  Serial.println(data.direction);
+
+  Serial.println(saved ? "CAL_OK" : "CAL_SAVE_ERR");
+  return saved;
+}
 
 // Custom PacketCommander that catches a 'B' packet to trigger bootloader reset.
 class BootPacketCommander : public PacketCommander {
@@ -67,30 +102,15 @@ protected:
       }
       return true;
     }
-    /*
     if (packet.type == 'C') {
       uint8_t code = 0;
       *_io >> code;
-      // "C1" enters calibration mode
-      if (code == 1 && g_motor) {
-        calibration_mode = true;
-        calibration_stage = 1;
-        calibration_dir = 1;
-        calibration_remaining = 3.1415926f; // 180 deg
-        calibration_target_angle = g_motor->shaft_angle;
-        calibration_last_us = micros();
-        // Force open-loop angle mode with voltage torque and PWM modulation
-        g_motor->controller = MotionControlType::angle_openloop;
-        g_motor->torque_controller = TorqueControlType::voltage;
-        g_motor->foc_modulation = FOCModulationType::SinePWM;
-        g_motor->target = calibration_target_angle;
-        telemetry.setTelemetryRegisters(sizeof(telemetry_calib_registers), telemetry_calib_registers);
-        telemetry.downsample = 10;
-        Serial.print("CAL_MODE\n");
+      // "C2" runs sensor calibration and stores LUT to flash.
+      if (code == 2) {
+        perform_sensor_calibration();
       }
       return true;
     }
-      */
     return PacketCommander::handlePacket(packet);
   }
 };
@@ -102,19 +122,21 @@ static BootPacketCommander packet_commander(/*echo=*/true);
 // BKP_DR1 magic to request bootloader (handled in bootloader on reset)
 constexpr uint16_t BOOT_MAGIC = 0xB007;
 
-void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver) {
+void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, StoredCalibratedSensor &calibrated) {
   static TextIO serial_io(Serial);
   serial_io.precision = 4;
   stream_io = &serial_io;
   g_driver = &driver;
   g_motor = &motor;
+  g_raw_sensor = &raw_sensor;
+  g_calibrated_sensor = &calibrated;
 
   packet_commander.addMotor(&motor);
   packet_commander.init(*stream_io);
 
   telemetry.addMotor(&motor);
   telemetry.setTelemetryRegisters(sizeof(telemetry_registers), telemetry_registers);
-  telemetry.downsample = 1000;      // send every 100 loop iterations by default
+  telemetry.downsample = 100;      // send every 100 loop iterations by default
   telemetry.min_elapsed_time = 0;  // no additional rate limit
   telemetry.init(*stream_io);
 }
