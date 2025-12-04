@@ -202,7 +202,7 @@ def draw_ui(stdscr, state: MotorState) -> None:
 def main():
     parser = argparse.ArgumentParser(description="PySimpleFOC PacketCommander test UI")
     parser.add_argument("--port", required=True, help="Serial port (e.g. /dev/ttyACM0 or COM3)")
-    parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
+    parser.add_argument("--baud", type=int, default=460800, help="Baud rate (default: 460800)")
     args = parser.parse_args()
 
     client = PacketCommanderClient(args.port, args.baud)

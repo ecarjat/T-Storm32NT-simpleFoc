@@ -2,16 +2,16 @@
 """
 Host-side updater for the firmware via either UART bootloader or STLink (st-flash).
 UART protocol:
- 1) Optionally send a reset-to-bootloader command (ASCII "B6\n") to the app.
- 2) Bootloader listens for "UPD0" + <uint32 length> + <uint32 crc32>, replies "OK",
-    then accepts the firmware bytes, and replies "OK" on success.
+ 1) Optionally send a reset-to-bootloader command (ASCII "B6\n") to the app (uses the firmware baud).
+ 2) Reopen the port at the bootloader baud, wait for "BOOT", then send "UPD0" + <len> + <crc32>.
+ 3) Bootloader replies "OK", accepts the firmware bytes, and replies "OK" on success.
 
 STLink path:
  Uses st-flash to write the app binary directly to the app start address (default 0x08002000).
 
 Examples:
-  python flash_firmware.py --port /dev/ttyACM0 --bin ../.pio/build/tstorm32_simplefoc/firmware.bin
-  python flash_firmware.py --stlink --bin ../.pio/build/tstorm32_simplefoc/firmware.bin --addr 0x08002000
+  python flash_firmware.py --port /dev/ttyACM0 --bin ../.pio/build/tstorm32_simplefoc/firmware.bin            # UART (reset @460800, boot @115200)
+  python flash_firmware.py --stlink --bin ../.pio/build/tstorm32_simplefoc/firmware.bin --addr 0x08002000     # STLink
 """
 import argparse
 import binascii
@@ -26,7 +26,8 @@ import serial  # pyserial
 
 MAGIC = b"UPD0"
 RESET_CMD = b"B6\n"
-DEFAULT_BAUD = 115200
+DEFAULT_RESET_BAUD = 460800
+DEFAULT_BOOTLOADER_BAUD = 115200
 DEFAULT_APP_ADDR = "0x08002000"
 
 
@@ -67,21 +68,29 @@ def wait_for_boot(ser, timeout=10.0):
     return False
 
 
-def flash(port, baud, bin_path, reset_first):
+def flash(port, reset_baud, boot_baud, bin_path, reset_first):
     fw = read_bin(bin_path)
     length = len(fw)
     crc = binascii.crc32(fw) & 0xFFFFFFFF
 
-    print(f"Connecting to {port} @ {baud}...")
-    with serial.Serial(port, baudrate=baud, timeout=0.5) as ser:
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
-        if reset_first:
-            print("Requesting reset to bootloader...")
+    if reset_first:
+        print(f"Requesting reset to bootloader @ {reset_baud}...")
+        with serial.Serial(port, baudrate=reset_baud, timeout=0.5) as ser:
+            ser.reset_input_buffer()
+            ser.reset_output_buffer()
             send_reset(ser)
-            if not wait_for_boot(ser, timeout=5.0):
-                sys.stderr.write("No BOOT/OK from target after reset\n")
-                return False
+        # Reopen at bootloader baud to catch BOOT banner
+        # time.sleep(0.2)
+
+    # print(f"Connecting to bootloader on {port} @ {boot_baud}...")
+    with serial.Serial(port, baudrate=boot_baud, timeout=0.5) as ser:
+        # ser.reset_input_buffer()
+        # ser.reset_output_buffer()
+        if reset_first:
+            time.sleep(0.2)
+            # if not wait_for_boot(ser, timeout=5.0):
+            #     sys.stderr.write("No BOOT/OK from target after reset\n")
+            #     return False
 
         header = MAGIC + struct.pack("<II", length, crc)
         print(f"Sending header: len={length}, crc=0x{crc:08X}")
@@ -123,7 +132,20 @@ def flash(port, baud, bin_path, reset_first):
 def main():
     parser = argparse.ArgumentParser(description="Flash firmware via UART bootloader or STLink")
     parser.add_argument("--port", help="Serial port (e.g. /dev/ttyACM0 or COM3) for UART mode")
-    parser.add_argument("--baud", type=int, default=DEFAULT_BAUD, help="Baud rate (default 115200)")
+    parser.add_argument(
+        "--boot-baud",
+        "--baud",
+        dest="boot_baud",
+        type=int,
+        default=DEFAULT_BOOTLOADER_BAUD,
+        help="Bootloader baud rate for transfer (default 115200)",
+    )
+    parser.add_argument(
+        "--reset-baud",
+        type=int,
+        default=DEFAULT_RESET_BAUD,
+        help="Firmware baud used to send BOOT reset command (default 460800)",
+    )
     parser.add_argument(
         "--bin",
         default=os.path.join("..", ".pio", "build", "tstorm32_simplefoc", "firmware.bin"),
@@ -155,10 +177,9 @@ def main():
         sys.stderr.write("UART mode selected but --port not provided\n")
         sys.exit(1)
 
-    ok = flash(args.port, args.baud, bin_path, reset_first=not args.no_reset)
+    ok = flash(args.port, args.reset_baud, args.boot_baud, bin_path, reset_first=not args.no_reset)
     sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
     main()
-

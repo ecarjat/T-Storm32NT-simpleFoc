@@ -7,7 +7,7 @@ Firmware, bootloader, and host tools to run SimpleFOC on the [T-STorM32 NT Motor
 - MCU: STM32F103T8, 8 MHz HSE, 3.3 V IO.
 - Driver: DRV8313 3-PWM (IN1/2/3 on PA3/PB0/PB1), always enabled (no fault/enable pins).
 - Encoder: TLE5012B 3-wire SPI (PA5/PA6/PA7, CS=PA8).
-- UART: PA9/PA10 @115200 for PacketCommander/Telemetry and flashing.
+- UART: PA9/PA10 @460800 for PacketCommander/Telemetry (app). Bootloader listens at 115200.
 
 ## Project layout
 - `src/` – application firmware (PlatformIO env `tstorm32_simplefoc`), SimpleFOC + Arduino-FOC-drivers streams.
@@ -40,7 +40,7 @@ pio run -e tstorm32_bootloader
   ```
 - **App via UART bootloader (bootloader must already be installed):**
   ```bash
-  python flash/flash_firmware.py --port /dev/tty.usbserial-XXXX --baud 115200 --bin .pio/build/tstorm32_simplefoc/firmware.bin
+  python flash/flash_firmware.py --port /dev/tty.usbserial-XXXX --bin .pio/build/tstorm32_simplefoc/firmware.bin   # reset @460800, boot @115200
   ```
 
 ## Host CLI (settings + tests)
@@ -50,7 +50,7 @@ cd cli
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python pysimplefoc_cli.py --port /dev/tty.usbserial-XXXX --baud 115200
+python pysimplefoc_cli.py --port /dev/tty.usbserial-XXXX --baud 460800
 ```
 Main menu:
 - **Settings** – view/edit key registers (pole pairs, voltage/velocity limits, driver supply/limit, phase resistance, KV, velocity PID gains/LPF) and send `S1` to persist to flash.
@@ -61,5 +61,5 @@ A reserved flash page (0x0800FC00) stores selected motor/driver settings. `S1` p
 
 ## Notes
 - Heartbeat/status LED is on PA1.
-- Bootloader uses the same UART; slow blink indicates boot mode, solid/on-then-blink indicates app running.
+- Bootloader uses the same UART at 115200; slow blink indicates boot mode, solid/on-then-blink indicates app running.
 - Always refer to `Hardware.md` for pin mappings and constraints. No FAULT/ENABLE lines and no current sensing are present on this hardware.

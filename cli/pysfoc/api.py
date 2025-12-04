@@ -112,7 +112,7 @@ class PySFOCClient:
       - poll_velocity_sample()
     """
 
-    def __init__(self, port: str, baud: int = 115200, timeout: float = 0.3, motor_index: int = 0):
+    def __init__(self, port: str, baud: int = 460800, timeout: float = 0.3, motor_index: int = 0):
         self.client = PacketCommanderClient(port, baud, timeout)
         self.motor_index = motor_index
         self.state = MotorState(self.client)
@@ -197,4 +197,3 @@ class PySFOCClient:
     # --- utility -----------------------------------------------------------
     def close(self):
         self.client.close()
-

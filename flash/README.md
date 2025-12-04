@@ -13,7 +13,7 @@ Prereqs:
 Usage:
 ```bash
 cd flash
-python flash_firmware.py --port /dev/ttyACM0 --baud 115200 --bin ../.pio/build/tstorm32_simplefoc/firmware.bin   # UART
+python flash_firmware.py --port /dev/ttyACM0 --bin ../.pio/build/tstorm32_simplefoc/firmware.bin                 # UART (reset @460800, boot @115200)
 python flash_firmware.py --stlink --bin ../.pio/build/tstorm32_simplefoc/firmware.bin --addr 0x08002000            # STLink
 ```
 
@@ -26,7 +26,8 @@ Flow:
 Options:
 - `--bin` path to app firmware (defaults to PlatformIO app build).
 - `--no-reset` skips the BOOT command if you’ve already reset into the bootloader.
-- `--baud` baud rate (default 115200).
+- `--boot-baud` baud rate for bootloader transfer (default 115200). Alias: `--baud`.
+- `--reset-baud` baud rate used to send the BOOT reset command to the running firmware (default 460800).
 - `--port` serial port (UART mode, required unless using --stlink).
 - `--stlink` use st-flash instead of UART.
 - `--stflash` path to st-flash (default `st-flash`).

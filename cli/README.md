@@ -14,7 +14,7 @@ pip install -r requirements.txt
 ## Run
 
 ```bash
-python pysimplefoc_cli.py --port /dev/tty.usbmodemXXXX --baud 115200
+python pysimplefoc_cli.py --port /dev/tty.usbmodemXXXX --baud 460800
 ```
 
 ## Controls (curses UI)
@@ -41,7 +41,7 @@ PID tuning and other host automation can reuse the lightweight PacketCommander w
 ```python
 from pysfoc import PySFOCClient, REG_TARGET, REG_VELOCITY
 
-client = PySFOCClient(port="/dev/ttyUSB0", baud=115200)
+client = PySFOCClient(port="/dev/ttyUSB0", baud=460800)
 client.vel_ctrl_enable(True)                  # enable closed-loop velocity
 client.vel_pid_set(0.1, 2.0, 0.01)            # push PID gains
 client.vel_target_set(5.0)                    # command target velocity (rad/s)

@@ -9,7 +9,7 @@
 #include "runtime_settings.h"
 
 // UART1 is the primary host interface (PA9/PA10).
-constexpr unsigned long UART_BAUD = 115200;
+constexpr unsigned long UART_BAUD = 460800;
 constexpr const char* APP_VERSION = "app_v1.0.0";
 
 // SimpleFOC objects
