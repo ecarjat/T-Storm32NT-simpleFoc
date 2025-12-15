@@ -1,8 +1,8 @@
 #include "comms_streams.h"
 
 #include <Arduino.h>
+#include <comms/streams/BinaryIO.h>
 #include <comms/streams/PacketCommander.h>
-#include <comms/streams/TextIO.h>
 #include <comms/telemetry/Telemetry.h>
 
 #include "board_pins.h"
@@ -25,7 +25,7 @@ static uint8_t telemetry_registers[] = {
 };
 
 static Telemetry telemetry;
-static TextIO *stream_io = nullptr;
+static BinaryIO *stream_io = nullptr;
 
 static bool perform_sensor_calibration() {
   if (!g_motor || !g_driver || !g_raw_sensor || !g_calibrated_sensor) {
@@ -115,7 +115,7 @@ protected:
   }
 };
 
-// Text-based stream over UART1 (PA9/PA10). BinaryIO is available if higher throughput is needed.
+// Binary stream over UART1 (PA9/PA10) for PacketCommander + Telemetry.
 static BootPacketCommander packet_commander(/*echo=*/true);
 
 
@@ -123,8 +123,7 @@ static BootPacketCommander packet_commander(/*echo=*/true);
 constexpr uint16_t BOOT_MAGIC = 0xB007;
 
 void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, StoredCalibratedSensor &calibrated) {
-  static TextIO serial_io(Serial);
-  serial_io.precision = 4;
+  static BinaryIO serial_io(Serial);
   stream_io = &serial_io;
   g_driver = &driver;
   g_motor = &motor;
@@ -149,41 +148,6 @@ void handle_streams(BLDCMotor &motor) {
   packet_commander.run();
   telemetry.run();
 
-  /*
-  if (calibration_mode && g_motor) {
-    const float speed = 5.0f; // rad/s
-    unsigned long now = micros();
-    float dt = (now - calibration_last_us) / 1000000.0f;
-    if (dt < 0) {
-      dt = 0;
-    }
-    calibration_last_us = now;
-
-    float delta = speed * dt * calibration_dir;
-    calibration_target_angle += delta;
-    calibration_remaining -= fabs(delta);
-    g_motor->target = calibration_target_angle;
-
-    if (calibration_remaining <= 0.0f) {
-      if (calibration_stage == 1) {
-        // Reverse direction for second 180 deg
-        calibration_stage = 2;
-        calibration_dir = -1;
-        calibration_remaining = 3.1415926f;
-      } else {
-        // Done: restore defaults
-        calibration_mode = false;
-        calibration_stage = 0;
-        calibration_dir = 1;
-        calibration_remaining = 0.0f;
-        g_motor->controller = MotionControlType::velocity;
-        g_motor->target = 0.0f;
-        telemetry.setTelemetryRegisters(sizeof(telemetry_registers), telemetry_registers);
-        telemetry.downsample = 0;
-      }
-    }
-  }
-    */
 }
 
 // Write magic to backup register and reset into bootloader

@@ -26,6 +26,7 @@ import serial  # pyserial
 
 MAGIC = b"UPD0"
 RESET_CMD = b"B6\n"
+RESET_CMD_BINARY = bytes([0xA5, 0x02, ord("B"), 0x06])  # BinaryIO packet: marker, size, type='B', payload=0x06
 DEFAULT_RESET_BAUD = 460800
 DEFAULT_BOOTLOADER_BAUD = 115200
 DEFAULT_APP_ADDR = "0x08002000"
@@ -36,8 +37,12 @@ def read_bin(path):
         return f.read()
 
 
-def send_reset(ser):
-    ser.write(RESET_CMD)
+def send_reset(ser, binary: bool = False):
+    """Send bootloader reset command either as ASCII 'B6\\n' or BinaryIO packet."""
+    if binary:
+        ser.write(RESET_CMD_BINARY)
+    else:
+        ser.write(RESET_CMD)
     ser.flush()
 
 
@@ -68,17 +73,18 @@ def wait_for_boot(ser, timeout=10.0):
     return False
 
 
-def flash(port, reset_baud, boot_baud, bin_path, reset_first):
+def flash(port, reset_baud, boot_baud, bin_path, reset_first, binary_reset):
     fw = read_bin(bin_path)
     length = len(fw)
     crc = binascii.crc32(fw) & 0xFFFFFFFF
 
     if reset_first:
-        print(f"Requesting reset to bootloader @ {reset_baud}...")
+        reset_kind = "binary" if binary_reset else "text"
+        print(f"Requesting reset to bootloader ({reset_kind}) @ {reset_baud}...")
         with serial.Serial(port, baudrate=reset_baud, timeout=0.5) as ser:
             ser.reset_input_buffer()
             ser.reset_output_buffer()
-            send_reset(ser)
+            send_reset(ser, binary=binary_reset)
         # Reopen at bootloader baud to catch BOOT banner
         # time.sleep(0.2)
 
@@ -152,6 +158,11 @@ def main():
         help="Path to app firmware .bin",
     )
     parser.add_argument("--no-reset", action="store_true", help="Do not send BOOT reset command first (UART)")
+    parser.add_argument(
+        "--binary-reset",
+        action="store_true",
+        help="Send bootloader reset using BinaryIO framing (0xA5 0x02 'B' 0x06) instead of text 'B6\\n'",
+    )
     parser.add_argument("--stlink", action="store_true", help="Use st-flash (STLink) instead of UART bootloader")
     parser.add_argument("--stflash", default="st-flash", help="st-flash executable (default: st-flash in PATH)")
     parser.add_argument("--addr", default=DEFAULT_APP_ADDR, help="Flash address for st-flash (default 0x08002000)")
@@ -177,7 +188,14 @@ def main():
         sys.stderr.write("UART mode selected but --port not provided\n")
         sys.exit(1)
 
-    ok = flash(args.port, args.reset_baud, args.boot_baud, bin_path, reset_first=not args.no_reset)
+    ok = flash(
+        args.port,
+        args.reset_baud,
+        args.boot_baud,
+        bin_path,
+        reset_first=not args.no_reset,
+        binary_reset=args.binary_reset,
+    )
     sys.exit(0 if ok else 1)
 
 
