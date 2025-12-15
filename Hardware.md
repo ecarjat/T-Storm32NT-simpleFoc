@@ -103,3 +103,11 @@ Assumptions for firmware:
 - Use timers for PA3, PB0, PB1 as PWM outputs to drive DRV8313 phase inputs.
 - Initialize PA1 as push-pull output (status LED).
 - Initialize PA2 and PA4 as inputs with pull-ups and read them at boot as configuration straps.
+
+Molex connector
+
+- GND
+- RX
+- TX
+- 5V
+- VBAT
