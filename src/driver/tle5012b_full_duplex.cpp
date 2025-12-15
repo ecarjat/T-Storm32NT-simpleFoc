@@ -99,7 +99,9 @@ void TLE5012BFullDuplex::init() {
   }
 
   if (HAL_SPI_Init(&_spi) != HAL_OK) {
+#ifdef DEBUG_SERIAL
     Serial.println("TLE5012B full-duplex init error");
+#endif
   }
 }
 

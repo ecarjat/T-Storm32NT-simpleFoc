@@ -265,6 +265,31 @@ class PacketCommanderClient:
                 return False
         return None
 
+    def run_calibration(self, timeout: float = 10.0):
+        """Trigger sensor calibration via C2 and watch for CAL_OK/CAL_SAVE_ERR text output."""
+        try:
+            self.ser.reset_input_buffer()
+        except Exception:
+            pass
+        self._write_line("C2")
+        deadline = time.time() + timeout
+        result = None
+        while time.time() < deadline and result is None:
+            line = self.ser.readline()
+            if not line:
+                continue
+            try:
+                text = line.decode("ascii", errors="ignore").strip()
+            except Exception:
+                continue
+            if not text:
+                continue
+            if "CAL_OK" in text:
+                result = True
+            elif "CAL_SAVE_ERR" in text:
+                result = False
+        return result
+
 
 class BinaryPacketCommanderClient:
     """
@@ -283,6 +308,10 @@ class BinaryPacketCommanderClient:
     PACKET_TELEM = ord("T")
     PACKET_SYNC = ord("S")
     PACKET_BOOT = ord("B")
+    PACKET_SAVE = ord("S")
+    PACKET_SAVE_RESP = ord("s")
+    PACKET_CAL = ord("C")
+    PACKET_CAL_RESP = ord("c")
 
     _INT_REGS = {
         REG_STATUS,
@@ -444,6 +473,24 @@ class BinaryPacketCommanderClient:
                 self._handle_telem_frame(payload)
         return None
 
+    def _wait_for_command_response(self, resp_type: int, expect_code: int, timeout: float = 1.5) -> Optional[bool]:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            frame = self._read_frame(deadline - time.time())
+            if not frame:
+                continue
+            pkt_type, payload = frame
+            if pkt_type == resp_type and len(payload) >= 2:
+                code = payload[0]
+                if code != expect_code:
+                    continue
+                return payload[1] == 1
+            if pkt_type == self.PACKET_TELEM_HEADER:
+                self._handle_telem_header(payload)
+            elif pkt_type == self.PACKET_TELEM:
+                self._handle_telem_frame(payload)
+        return None
+
     def read_reg(self, reg: int):
         payload = bytes([reg])
         self._send_packet(self.PACKET_REGISTER, payload)
@@ -553,23 +600,22 @@ class BinaryPacketCommanderClient:
         self.write_reg(REG_ENABLE, 1 if enable else 0)
 
     def save_settings(self):
-        """Send the BootPacketCommander 'S1' save command and watch for SAVE_OK/SAVE_ERR text."""
+        """Send the BootPacketCommander 'S1' save command and wait for binary s1 response."""
         try:
             self.ser.reset_input_buffer()
         except Exception:
             pass
-        self._send_packet(self.PACKET_SYNC, bytes([1]))
-        deadline = time.time() + 2.0
-        buffer = bytearray()
-        while time.time() < deadline:
-            chunk = self.ser.read(self.ser.in_waiting or 1)
-            if chunk:
-                buffer.extend(chunk)
-                if b"SAVE_OK" in buffer:
-                    return True
-                if b"SAVE_ERR" in buffer:
-                    return False
-        return None
+        self._send_packet(self.PACKET_SAVE, bytes([1]))
+        return self._wait_for_command_response(self.PACKET_SAVE_RESP, expect_code=1, timeout=2.0)
+
+    def run_calibration(self, timeout: float = 10.0) -> Optional[bool]:
+        """Send C2 calibration command and wait for binary c2 response."""
+        try:
+            self.ser.reset_input_buffer()
+        except Exception:
+            pass
+        self._send_packet(self.PACKET_CAL, bytes([2]))
+        return self._wait_for_command_response(self.PACKET_CAL_RESP, expect_code=2, timeout=timeout)
 
 
 def map_status(val: Optional[int]) -> str:

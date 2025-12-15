@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import time
 
-from pysfoc.packet_commander import PacketCommanderClient  
-from pysfoc.api import MotorState  
-from pysfoc.constants import REGISTER_IDS  
+from pysfoc.packet_commander import PacketCommanderClient  # type: ignore[import-not-found]
+from pysfoc.api import MotorState  # type: ignore[import-not-found]
+from pysfoc.constants import REGISTER_IDS  # type: ignore[import-not-found]
 
 
 def sensor_calibration_menu(client: PacketCommanderClient, state: MotorState) -> None:
@@ -20,32 +20,10 @@ def sensor_calibration_menu(client: PacketCommanderClient, state: MotorState) ->
         client.write_reg(REGISTER_IDS["telemetry_downsample"], 0)
     except Exception:
         pass
-    try:
-        client.ser.reset_input_buffer()
-    except Exception:
-        pass
-    client._write_line("C2")
-    deadline = time.time() + 10.0
-    result = None
-    print("Waiting for calibration output (up to 10s):")
-    while time.time() < deadline and result is None:
-        line = client.ser.readline()
-        if not line:
-            continue
-        try:
-            text = line.decode("ascii", errors="ignore").strip()
-        except Exception:
-            continue
-        if not text:
-            continue
-        print(f"  {text}")
-        if "CAL_OK" in text:
-            result = "CAL_OK"
-        elif "CAL_SAVE_ERR" in text:
-            result = "CAL_SAVE_ERR"
-    if result is None:
-        print("Calibration did not report completion before timeout.")
-    elif result == "CAL_OK":
-        print("Calibration successful (CAL_OK).")
+    result = client.run_calibration(timeout=10.0)
+    if result is True:
+        print("Calibration successful (C2 => 1).")
+    elif result is False:
+        print("Calibration failed (C2 => 0).")
     else:
-        print("Calibration reported CAL_SAVE_ERR (save to flash failed).")
+        print("Calibration did not report completion before timeout.")

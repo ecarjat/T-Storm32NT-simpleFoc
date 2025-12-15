@@ -29,7 +29,9 @@ static BinaryIO *stream_io = nullptr;
 
 static bool perform_sensor_calibration() {
   if (!g_motor || !g_driver || !g_raw_sensor || !g_calibrated_sensor) {
+#ifdef DEBUG_SERIAL
     Serial.println("CAL_ERR");
+#endif
     return false;
   }
   SensorCalibrationData data{};
@@ -39,7 +41,9 @@ static bool perform_sensor_calibration() {
   g_driver->enable();
   bool ok = calibrate_sensor(*g_raw_sensor, *g_motor, data);
   if (!ok) {
+#ifdef DEBUG_SERIAL
     Serial.println("CAL_ERR");
+#endif
     return false;
   }
 
@@ -53,6 +57,7 @@ static bool perform_sensor_calibration() {
   g_motor->initFOC();
 
   // Dump LUT for logging/verification before reporting status.
+#ifdef DEBUG_SERIAL
   Serial.print("CAL_LUT[");
   Serial.print(data.lut_size);
   Serial.print("]=");
@@ -68,6 +73,7 @@ static bool perform_sensor_calibration() {
   Serial.println(data.direction);
 
   Serial.println(saved ? "CAL_OK" : "CAL_SAVE_ERR");
+#endif
   return saved;
 }
 
@@ -94,11 +100,8 @@ protected:
         // PacketCommander stores FOCMotor*, but we add a BLDCMotor so this cast is safe here.
         auto *m = static_cast<BLDCMotor *>(motors[curMotor]);
         bool ok = save_settings_to_flash(*m, *g_driver);
-        if (ok) {
-          Serial.print("SAVE_OK\n");
-        } else {
-          Serial.print("SAVE_ERR\n");
-        }
+        // Respond with s1=1 (ok) or s1=0 (fail) over BinaryIO.
+        *_io << START_PACKET('s', 2) << (uint8_t)1 << Separator('=') << (uint8_t)(ok ? 1 : 0) << END_PACKET;
       }
       return true;
     }
@@ -107,7 +110,9 @@ protected:
       *_io >> code;
       // "C2" runs sensor calibration and stores LUT to flash.
       if (code == 2) {
-        perform_sensor_calibration();
+        bool ok = perform_sensor_calibration();
+        // Respond with c2=1 (ok) or c2=0 (fail) similar to register responses.
+        *_io << START_PACKET('c', 2) << (uint8_t)2 << Separator('=') << (uint8_t)(ok ? 1 : 0) << END_PACKET;
       }
       return true;
     }
