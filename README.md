@@ -61,7 +61,7 @@ Main menu:
 - **Test** – curses UI for motion commands (full rotations, steps, slow run with speed adjust). `q` returns to menu.
 
 ### BinaryIO communications (PacketCommander/Telemetry)
-The firmware uses BinaryIO framing on UART (PA9/PA10) for PacketCommander and Telemetry. Packets are framed with a marker + size, so no newline terminator is needed. On the wire each packet is: marker `0xA5`, one-byte `size`, one-byte `type`, then the raw payload bytes. Floats are little-endian IEEE754; 32-bit integers are little-endian. A small wrapper (`FlushingBinaryIO`) flushes the UART at `END_PACKET` so each packet is sent immediately rather than waiting for the internal buffer to fill.
+The firmware uses BinaryIO framing on UART (PA9/PA10) for PacketCommander and Telemetry. Packets are framed with a marker + size, so no newline terminator is needed. A small wrapper (`FlushingBinaryIO`) flushes the UART at `END_PACKET` so each packet is sent immediately rather than waiting for the internal buffer to fill.
 - Frame format: `[0xA5][size][type][payload...]`
   - `0xA5` is the BinaryIO marker.
   - `size` is the length of `type + payload` (so a register write with 1-byte payload uses size=2).
