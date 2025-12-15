@@ -1,12 +1,12 @@
 #include "comms_streams.h"
 
 #include <Arduino.h>
-#include <comms/streams/BinaryIO.h>
 #include <comms/streams/PacketCommander.h>
 #include <comms/telemetry/Telemetry.h>
 
 #include "board_pins.h"
 #include "calibrated_sensor.h"
+#include "flushing_binary_io.h"
 #include "runtime_settings.h"
 
 // Forward pointers/state for settings and calibration handling.
@@ -123,7 +123,7 @@ static BootPacketCommander packet_commander(/*echo=*/true);
 constexpr uint16_t BOOT_MAGIC = 0xB007;
 
 void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, StoredCalibratedSensor &calibrated) {
-  static BinaryIO serial_io(Serial);
+  static FlushingBinaryIO serial_io(Serial);
   stream_io = &serial_io;
   g_driver = &driver;
   g_motor = &motor;

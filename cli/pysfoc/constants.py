@@ -17,16 +17,25 @@ REGISTER_IDS = {
     "angle": 0x09,
     "position": 0x10,
     "velocity": 0x11,
+    "sensor_angle": 0x12,
     "sensor_mech_angle": 0x13,
+    "sensor_velocity": 0x14,
+    "sensor_ts": 0x15,
+    "telemetry_reg": 0x1A,
+    "telemetry_ctrl": 0x1B,
+    "telemetry_downsample": 0x1C,
     "vel_pid_p": 0x30,
     "vel_pid_i": 0x31,
     "vel_pid_d": 0x32,
     "vel_pid_limit": 0x33,
-    "telemetry_reg": 0x1A,
-    "telemetry_ctrl": 0x1B,
-    "telemetry_downsample": 0x1C,
+    "voltage_limit": 0x50,
+    "velocity_limit": 0x52,
+    "driver_voltage_limit": 0x53,
+    "driver_voltage_psu": 0x55,
+    "pole_pairs": 0x63,
 }
 
+# Export per-register constants (REG_FOO) for backward compatibility and linting.
 REG_STATUS = REGISTER_IDS["status"]
 REG_TARGET = REGISTER_IDS["target"]
 REG_ENABLE = REGISTER_IDS["enable"]
@@ -35,14 +44,22 @@ REG_TORQUE_MODE = REGISTER_IDS["torque_mode"]
 REG_ANGLE = REGISTER_IDS["angle"]
 REG_POSITION = REGISTER_IDS["position"]
 REG_VELOCITY = REGISTER_IDS["velocity"]
+REG_SENSOR_ANGLE = REGISTER_IDS["sensor_angle"]
 REG_SENSOR_MECH_ANGLE = REGISTER_IDS["sensor_mech_angle"]
+REG_SENSOR_VELOCITY = REGISTER_IDS["sensor_velocity"]
+REG_SENSOR_TS = REGISTER_IDS["sensor_ts"]
+REG_TELEMETRY_REG = REGISTER_IDS["telemetry_reg"]
+REG_TELEMETRY_CTRL = REGISTER_IDS["telemetry_ctrl"]
+REG_TELEMETRY_DOWNSAMPLE = REGISTER_IDS["telemetry_downsample"]
 REG_VEL_PID_P = REGISTER_IDS["vel_pid_p"]
 REG_VEL_PID_I = REGISTER_IDS["vel_pid_i"]
 REG_VEL_PID_D = REGISTER_IDS["vel_pid_d"]
 REG_VEL_PID_LIMIT = REGISTER_IDS["vel_pid_limit"]
-REG_TELEMETRY_REG = REGISTER_IDS["telemetry_reg"]
-REG_TELEMETRY_CTRL = REGISTER_IDS["telemetry_ctrl"]
-REG_TELEMETRY_DOWNSAMPLE = REGISTER_IDS["telemetry_downsample"]
+REG_VOLTAGE_LIMIT = REGISTER_IDS["voltage_limit"]
+REG_VELOCITY_LIMIT = REGISTER_IDS["velocity_limit"]
+REG_DRIVER_VOLTAGE_LIMIT = REGISTER_IDS["driver_voltage_limit"]
+REG_DRIVER_VOLTAGE_PSU = REGISTER_IDS["driver_voltage_psu"]
+REG_POLE_PAIRS = REGISTER_IDS["pole_pairs"]
 
 READ_REGEX_PATTERN = r"r(?P<reg>\d+)\s*=\s*(?P<val>[-+0-9.eE]+)"
 TELEM_HEADER_PATTERN = r"H(?P<tid>\d+)=?(?P<body>.*)"
@@ -56,23 +73,11 @@ DEFAULT_TELEM_REGS = [
     (0, REG_STATUS),
 ]
 
+# Map reg ID -> friendly name (includes aliases where names overlap on purpose).
 REG_NAME_MAP = {val: name for name, val in REGISTER_IDS.items()}
 REG_NAME_MAP.update(
     {
         REG_POSITION: "sensor_position",  # rotations + angle
-        0x12: "sensor_angle",
-        REG_SENSOR_MECH_ANGLE: "sensor_mech_angle",
-        0x14: "sensor_velocity",
-        0x15: "sensor_ts",
-        REG_VEL_PID_P: "vel_pid_p",
-        REG_VEL_PID_I: "vel_pid_i",
-        REG_VEL_PID_D: "vel_pid_d",
-        REG_VEL_PID_LIMIT: "vel_pid_limit",
-        0x52: "velocity_limit",
-        0x50: "voltage_limit",
-        0x53: "driver_voltage_limit",
-        0x55: "driver_voltage_psu",
-        0x63: "pole_pairs",
     }
 )
 

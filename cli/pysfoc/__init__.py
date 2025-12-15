@@ -6,7 +6,13 @@ PID auto-tuner can depend on a stable API.
 """
 
 from .api import MotorState, PySFOCClient, TelemetryConfig, VelocityTelemetry
-from .packet_commander import PacketCommanderClient, TelemetrySample, map_control_mode, map_status
+from .packet_commander import (
+    BinaryPacketCommanderClient,
+    PacketCommanderClient,
+    TelemetrySample,
+    map_control_mode,
+    map_status,
+)
 from .constants import (
     CONTROL_MODE_IDS,
     CONTROL_MODE_NAMES,
@@ -30,6 +36,7 @@ from .constants import (
 __all__ = [
     "PySFOCClient",
     "PacketCommanderClient",
+    "BinaryPacketCommanderClient",
     "MotorState",
     "TelemetrySample",
     "TelemetryConfig",
