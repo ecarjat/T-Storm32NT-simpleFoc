@@ -13,11 +13,11 @@ from pysfoc import (
     REG_VEL_PID_P,
 )
 from pysfoc.constants import DEFAULT_TELEM_REGS, REGISTER_IDS, REG_NAME_MAP
-from pysfoc.packet_commander import PacketCommanderClient
+from pysfoc.packet_commander import BinaryPacketCommanderClient
 from pysfoc.api import MotorState
 
 
-def pid_tune_mode(client: PacketCommanderClient, state: MotorState) -> None:
+def pid_tune_mode(client: BinaryPacketCommanderClient, state: MotorState) -> None:
     """
     Velocity PID tuning helper:
     - Disables the motor.
@@ -33,7 +33,7 @@ def pid_tune_mode(client: PacketCommanderClient, state: MotorState) -> None:
     print("    P/p, I/i, D/d to adjust gains; SPACE to enable/disable; q or Esc to quit.\n")
     state.refresh_status()
     prev_control_mode = state.control_mode_val if state.control_mode_val is not None else state.control_mode
-    prev_target = state.target
+    prev_target = state.commanded_target
     prev_regs = [reg for motor, reg in client.telemetry_headers.get(0, DEFAULT_TELEM_REGS) if motor == 0]
     try:
         prev_downsample = client.read_reg(REGISTER_IDS["telemetry_downsample"])
@@ -52,8 +52,7 @@ def pid_tune_mode(client: PacketCommanderClient, state: MotorState) -> None:
 
     # 3) Set target to 5 rad/s and switch to closed-loop velocity.
     pid_target = 5.0
-    state.target = pid_target
-    state.set_target(pid_target)
+    state.set_target(pid_target, track_command=True)
     client.set_telemetry_registers([REG_TARGET, REG_VELOCITY])
     client.write_reg(REGISTER_IDS["telemetry_downsample"], 100)
     state.set_control_mode(CONTROL_MODE_IDS["velocity"])
@@ -146,6 +145,7 @@ def pid_tune_mode(client: PacketCommanderClient, state: MotorState) -> None:
     def adjust_target(delta: float):
         nonlocal pid_target
         pid_target = max(0.0, pid_target + delta)
+        state.commanded_target = pid_target
         if running_flag:
             state.set_target(pid_target)
         update_status_text()
@@ -233,7 +233,7 @@ def pid_tune_mode(client: PacketCommanderClient, state: MotorState) -> None:
         if prev_control_mode is not None:
             state.set_control_mode(prev_control_mode)
         if prev_target is not None:
-            state.set_target(prev_target)
+            state.set_target(prev_target, track_command=True)
         if prev_regs:
             client.set_telemetry_registers(prev_regs)
         if prev_downsample is not None:

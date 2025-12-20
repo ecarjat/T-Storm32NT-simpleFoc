@@ -11,7 +11,7 @@ Usage examples:
 import argparse
 from typing import Dict, List
 
-from pysfoc import PacketCommanderClient
+from pysfoc import BinaryPacketCommanderClient
 from pysfoc.constants import (
     REGISTER_IDS,
     REG_NAME_MAP,
@@ -85,7 +85,7 @@ def main():
     reg_names = [tok.strip() for tok in args.regs.split(",") if tok.strip()]
     reg_ids = resolve_regs(reg_names)
 
-    client = PacketCommanderClient(args.port, args.baud, debug=args.debug)
+    client = BinaryPacketCommanderClient(args.port, args.baud, debug=args.debug)
     try:
         # Apply writes first so the subsequent read reflects them
         if args.write:

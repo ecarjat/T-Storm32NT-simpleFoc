@@ -5,7 +5,7 @@ from collections import deque
 
 from pysfoc import CONTROL_MODE_IDS, REG_ANGLE, REG_SENSOR_MECH_ANGLE, REG_TARGET  # type: ignore[import-not-found]
 from pysfoc.constants import DEFAULT_TELEM_REGS, REGISTER_IDS, REG_NAME_MAP  # type: ignore[import-not-found]
-from pysfoc.packet_commander import PacketCommanderClient  # type: ignore[import-not-found]
+from pysfoc.packet_commander import BinaryPacketCommanderClient  # type: ignore[import-not-found]
 from pysfoc.api import MotorState  # type: ignore[import-not-found]
 
 
@@ -13,7 +13,7 @@ def reg_display_name(reg_id: int) -> str:
     return REG_NAME_MAP.get(reg_id, f"reg{reg_id}")
 
 
-def sensor_plot_mode(client: PacketCommanderClient, state: MotorState, stop_run_fn) -> None:
+def sensor_plot_mode(client: BinaryPacketCommanderClient, state: MotorState, stop_run_fn) -> None:
     """
     Sensor plot helper:
     - Disables the motor.
@@ -27,7 +27,7 @@ def sensor_plot_mode(client: PacketCommanderClient, state: MotorState, stop_run_
     print("  - Telemetry: shaft angle + sensor mechanical angle (both normalized 0..2π).")
     state.refresh_status()
     prev_control_mode = state.control_mode_val if state.control_mode_val is not None else state.control_mode
-    prev_target = state.target
+    prev_target = state.commanded_target
     prev_regs = [reg for motor, reg in client.telemetry_headers.get(0, DEFAULT_TELEM_REGS) if motor == 0]
     try:
         prev_downsample = client.read_reg(REGISTER_IDS["telemetry_downsample"])
@@ -38,8 +38,7 @@ def sensor_plot_mode(client: PacketCommanderClient, state: MotorState, stop_run_
     stop_run_fn(client, state)
     state.set_control_mode(CONTROL_MODE_IDS["torque"])
     target_val = 1.0
-    state.target = target_val
-    state.set_target(target_val)
+    state.set_target(target_val, track_command=True)
     client.set_telemetry_registers([REG_ANGLE, REG_SENSOR_MECH_ANGLE])
     client.write_reg(REGISTER_IDS["telemetry_downsample"], 100)
     state.refresh_status()
@@ -78,7 +77,7 @@ def sensor_plot_mode(client: PacketCommanderClient, state: MotorState, stop_run_
 
     def update_status_text():
         status_text.set_text(
-            f"Target {state.target:.2f} | Motor {'ENABLED' if running_flag else 'disabled'}"
+            f"Target {state.commanded_target:.2f} | Motor {'ENABLED' if running_flag else 'disabled'}"
         )
 
     def set_motor_enabled(enabled: bool):
@@ -88,7 +87,7 @@ def sensor_plot_mode(client: PacketCommanderClient, state: MotorState, stop_run_
         if not enabled:
             state.set_target(0.0)
         else:
-            state.set_target(state.target)
+            state.set_target(state.commanded_target)
         update_status_text()
 
     def on_key(event):
@@ -100,12 +99,12 @@ def sensor_plot_mode(client: PacketCommanderClient, state: MotorState, stop_run_
         elif key in ("q", "escape"):
             plt.close(fig)
         elif key == "T":
-            state.target += TARGET_STEP
-            state.set_target(state.target)
+            state.commanded_target += TARGET_STEP
+            state.set_target(state.commanded_target)
             update_status_text()
         elif key == "t":
-            state.target -= TARGET_STEP
-            state.set_target(state.target)
+            state.commanded_target -= TARGET_STEP
+            state.set_target(state.commanded_target)
             update_status_text()
 
     def update(frame):
@@ -152,7 +151,7 @@ def sensor_plot_mode(client: PacketCommanderClient, state: MotorState, stop_run_
         if prev_control_mode is not None:
             state.set_control_mode(prev_control_mode)
         if prev_target is not None:
-            state.set_target(prev_target)
+            state.set_target(prev_target, track_command=True)
         if prev_regs:
             client.set_telemetry_registers(prev_regs)
         if prev_downsample is not None:

@@ -9,6 +9,39 @@
 #include "flushing_binary_io.h"
 #include "runtime_settings.h"
 
+#ifdef PACKET_DEBUG
+static bool dbg_led_initialized = false;
+static bool dbg_telemetry_active = false;
+static uint32_t dbg_pulse_until_ms = 0;
+static constexpr uint16_t DBG_PULSE_MS = 100;
+
+static inline void debug_led_init() {
+  if (dbg_led_initialized) return;
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  digitalWrite(STATUS_LED_PIN, LOW);
+  dbg_led_initialized = true;
+}
+
+static inline void debug_led_tick() {
+  if (!dbg_led_initialized) return;
+  const uint32_t now = millis();
+  const bool pulse_active = dbg_pulse_until_ms && ((int32_t)(dbg_pulse_until_ms - now) > 0);
+  if (!pulse_active) {
+    dbg_pulse_until_ms = 0;
+  }
+  bool state = dbg_telemetry_active;
+  if (pulse_active) {
+    state = !state;
+  }
+  digitalWrite(STATUS_LED_PIN, state ? HIGH : LOW);
+}
+
+static inline void debug_led_pulse() {
+  debug_led_init();
+  dbg_pulse_until_ms = millis() + DBG_PULSE_MS;
+}
+#endif
+
 // Forward pointers/state for settings and calibration handling.
 static BLDCDriver3PWM *g_driver = nullptr;
 static BLDCMotor *g_motor = nullptr;
@@ -82,6 +115,34 @@ class BootPacketCommander : public PacketCommander {
 public:
   using PacketCommander::PacketCommander;
 
+  void run() override {
+    *_io >> curr_packet;
+    if (curr_packet.type != 0x00) {
+      bool handled = false;
+      commanderror = false;
+      handled = handlePacket(curr_packet);
+      lastcommanderror = commanderror;
+      lastcommandregister = curRegister;
+      bool bad_packet = false;
+      if (!handled) {
+        bad_packet = true;
+      }
+      if (commanderror) {
+        _io->in_sync = false;
+        bad_packet = true;
+      }
+      if (!_io->is_complete()) {
+        _io->in_sync = false;
+        bad_packet = true;
+      }
+#ifdef PACKET_DEBUG
+      if (bad_packet) {
+        debug_led_pulse();
+      }
+#endif
+    }
+  }
+
 protected:
   bool handlePacket(Packet &packet) override {
     if (packet.type == 'B') {
@@ -135,6 +196,9 @@ void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, 
   g_raw_sensor = &raw_sensor;
   g_calibrated_sensor = &calibrated;
 
+#ifdef PACKET_DEBUG
+  debug_led_init();
+#endif
   packet_commander.addMotor(&motor);
   packet_commander.init(*stream_io);
 
@@ -152,6 +216,10 @@ void handle_streams(BLDCMotor &motor) {
   }
   packet_commander.run();
   telemetry.run();
+#ifdef PACKET_DEBUG
+  dbg_telemetry_active = true;
+  debug_led_tick();
+#endif
 
 }
 

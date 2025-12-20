@@ -29,15 +29,16 @@ from .constants import (
     REG_VEL_PID_I,
     REG_VEL_PID_P,
 )
-from .packet_commander import PacketCommanderClient, TelemetrySample
+from .packet_commander import BinaryPacketCommanderClient, TelemetrySample
 
 
 @dataclass
 class MotorState:
-    client: PacketCommanderClient
+    client: BinaryPacketCommanderClient
     control_mode: Optional[int] = None
     open_loop: Optional[bool] = None
-    target: float = 0.0
+    target: float = 0.0  # last value reported back by the driver
+    commanded_target: float = 0.0  # host-side request that may differ temporarily
     running: bool = False
     running_dir: int = 1
     telemetry: Optional[TelemetrySample] = None
@@ -75,12 +76,14 @@ class MotorState:
             self.enable_val = int(resp)
         return resp
 
-    def set_target(self, target: float):
+    def set_target(self, target: float, *, track_command: bool = False):
+        if track_command:
+            self.commanded_target = float(target)
         resp = self._write_and_confirm(REG_TARGET, target)
         if resp is not None:
             self.target = float(resp)
         else:
-            self.target = target
+            self.target = float(target)
         return resp
 
 
@@ -113,7 +116,7 @@ class PySFOCClient:
     """
 
     def __init__(self, port: str, baud: int = 460800, timeout: float = 0.3, motor_index: int = 0):
-        self.client = PacketCommanderClient(port, baud, timeout)
+        self.client = BinaryPacketCommanderClient(port, baud, timeout)
         self.motor_index = motor_index
         self.state = MotorState(self.client)
 
@@ -126,7 +129,7 @@ class PySFOCClient:
 
     def vel_target_set(self, target_velocity: float):
         """VEL_TARGET_SET: update motor.target (velocity mode)."""
-        self.state.set_target(target_velocity)
+        self.state.set_target(target_velocity, track_command=True)
 
     def vel_ctrl_enable(self, enable: bool, control_mode: int | str = CONTROL_MODE_IDS["velocity"]):
         """

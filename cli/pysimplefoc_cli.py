@@ -22,7 +22,6 @@ from typing import Dict, List, Optional, Union
 
 from pysfoc import (  # type: ignore[import-not-found]
     BinaryPacketCommanderClient,
-    PacketCommanderClient,
     MotorState,
     TelemetrySample,
     CONTROL_MODE_IDS,
@@ -92,7 +91,7 @@ def map_torque_mode(val: Optional[int]) -> str:
 #         state.set_control_mode(CONTROL_MODE_IDS["vel_openloop"])
 
 
-def do_full_rotation(client: PacketCommanderClient, state: MotorState, direction: int):
+def do_full_rotation(client: BinaryPacketCommanderClient, state: MotorState, direction: int):
     cm = state.control_mode
     if cm is None:
         state.refresh_status()
@@ -102,17 +101,17 @@ def do_full_rotation(client: PacketCommanderClient, state: MotorState, direction
         if current is None:
             current = 0.0
         target = current + direction * (2 * math.pi)
-        state.set_target(target)
+        state.set_target(target, track_command=True)
     else:
         # Velocity/open-loop: command velocity for one rotation duration
-        speed = max(abs(state.target), 0.5) * direction
+        speed = max(abs(state.commanded_target), 0.5) * direction
         state.set_target(speed)
         duration = 2 * math.pi / max(abs(speed), 0.1)
         time.sleep(duration)
         state.set_target(0.0)
 
 
-def do_step(client: PacketCommanderClient, state: MotorState, direction: int, deg: float = 10.0):
+def do_step(client: BinaryPacketCommanderClient, state: MotorState, direction: int, deg: float = 10.0):
     cm = state.control_mode
     if cm is None:
         state.refresh_status()
@@ -122,9 +121,9 @@ def do_step(client: PacketCommanderClient, state: MotorState, direction: int, de
         if current is None:
             current = 0.0
         target = current + direction * math.radians(deg)
-        state.set_target(target)
+        state.set_target(target, track_command=True)
     else:
-        speed = max(abs(state.target), 0.5) * direction
+        speed = max(abs(state.commanded_target), 0.5) * direction
         step_rad = math.radians(deg)
         duration = step_rad / max(abs(speed), 0.1)
         state.set_target(speed)
@@ -133,22 +132,22 @@ def do_step(client: PacketCommanderClient, state: MotorState, direction: int, de
     state.running = False
 
 
-def do_run(client: PacketCommanderClient, state: MotorState, direction: int):
+def do_run(client: BinaryPacketCommanderClient, state: MotorState, direction: int):
     state.running = True
     state.running_dir = direction
-    target = direction * state.target
+    target = direction * state.commanded_target
     state.set_target(target)
 
 
-def stop_run(client: PacketCommanderClient, state: MotorState):
+def stop_run(client: BinaryPacketCommanderClient, state: MotorState):
     state.running = False
     state.set_target(0.0)
 
 
-def adjust_target(client: PacketCommanderClient, state: MotorState, delta: float):
-    state.target = max(0.0, state.target + delta)
+def adjust_target(client: BinaryPacketCommanderClient, state: MotorState, delta: float):
+    state.commanded_target = max(0.0, state.commanded_target + delta)
     if state.running:
-        state.set_target(state.running_dir * state.target)
+        state.set_target(state.running_dir * state.commanded_target)
 
 
 def draw_ui(stdscr, state: MotorState) -> None:
@@ -164,8 +163,16 @@ def draw_ui(stdscr, state: MotorState) -> None:
         open_loop_flag = state.open_loop
     cmode_name = map_control_mode(cmode_display) if cmode_display is not None else "unknown"
     open_loop_txt = "yes" if open_loop_flag else ("no" if open_loop_flag is not None else "unknown")
+    driver_target = None
+    if state.telemetry:
+        telem_target = state.telemetry.values.get(REG_TARGET)
+        if isinstance(telem_target, (int, float)):
+            driver_target = float(telem_target)
+    if driver_target is None:
+        driver_target = state.target
+    driver_txt = f"{driver_target:.2f}" if driver_target is not None else "n/a"
     stdscr.addstr(4, 0, f"Control mode: {cmode_name} (open-loop: {open_loop_txt})")
-    stdscr.addstr(5, 0, f"Target: {state.target:.2f}")
+    stdscr.addstr(5, 0, f"Cmd target: {state.commanded_target:.2f} (driver: {driver_txt})")
     if state.running:
         stdscr.addstr(6, 0, f"Running: {'CW' if state.running_dir > 0 else 'CCW'}")
     else:
@@ -211,12 +218,7 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.binary:
-        client: Union[PacketCommanderClient, BinaryPacketCommanderClient] = BinaryPacketCommanderClient(
-            args.port, args.baud
-        )
-    else:
-        client = PacketCommanderClient(args.port, args.baud)
+    client: BinaryPacketCommanderClient = BinaryPacketCommanderClient(args.port, args.baud)
     state = MotorState(client)
     setup_motor(client, state)
 

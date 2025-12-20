@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import time
 import math
-from typing import Optional
+from typing import Optional, Sequence
 
 from pysfoc import (  # type: ignore[import-not-found]
-    PacketCommanderClient,
+    BinaryPacketCommanderClient,
     MotorState,
     CONTROL_MODE_IDS,
     CONTROL_MODE_NAMES,
@@ -37,7 +37,7 @@ def map_torque_mode(val: Optional[int]) -> str:
     return TORQUE_MODE_NAMES.get(int(val), f"0x{int(val):02X}")
 
 
-def setup_motor(client: PacketCommanderClient, state: MotorState) -> None:
+def setup_motor(client: BinaryPacketCommanderClient, state: MotorState) -> None:
     state.refresh_status()
     if state.control_mode is None:
         state.set_control_mode(CONTROL_MODE_IDS["velocity"])
@@ -48,7 +48,7 @@ def setup_motor(client: PacketCommanderClient, state: MotorState) -> None:
         state.set_control_mode(CONTROL_MODE_IDS["vel_openloop"])
 
 
-def do_full_rotation(client: PacketCommanderClient, state: MotorState, direction: int):
+def do_full_rotation(client: BinaryPacketCommanderClient, state: MotorState, direction: int):
     cm = state.control_mode
     if cm is None:
         state.refresh_status()
@@ -58,16 +58,16 @@ def do_full_rotation(client: PacketCommanderClient, state: MotorState, direction
         if current is None:
             current = 0.0
         target = current + direction * (2 * math.pi)
-        state.set_target(target)
+        state.set_target(target, track_command=True)
     else:
-        speed = max(abs(state.target), 0.5) * direction
+        speed = max(abs(state.commanded_target), 0.5) * direction
         state.set_target(speed)
         duration = 2 * math.pi / max(abs(speed), 0.1)
         time.sleep(duration)
         state.set_target(0.0)
 
 
-def do_step(client: PacketCommanderClient, state: MotorState, direction: int, deg: float = 10.0):
+def do_step(client: BinaryPacketCommanderClient, state: MotorState, direction: int, deg: float = 10.0):
     cm = state.control_mode
     if cm is None:
         state.refresh_status()
@@ -77,9 +77,9 @@ def do_step(client: PacketCommanderClient, state: MotorState, direction: int, de
         if current is None:
             current = 0.0
         target = current + direction * math.radians(deg)
-        state.set_target(target)
+        state.set_target(target, track_command=True)
     else:
-        speed = max(abs(state.target), 0.5) * direction
+        speed = max(abs(state.commanded_target), 0.5) * direction
         step_rad = math.radians(deg)
         duration = step_rad / max(abs(speed), 0.1)
         state.set_target(speed)
@@ -88,27 +88,37 @@ def do_step(client: PacketCommanderClient, state: MotorState, direction: int, de
     state.running = False
 
 
-def do_run(client: PacketCommanderClient, state: MotorState, direction: int):
+def do_run(client: BinaryPacketCommanderClient, state: MotorState, direction: int):
     state.running = True
     state.running_dir = direction
-    target = direction * state.target
+    target = direction * state.commanded_target
     state.set_target(target)
 
 
-def stop_run(client: PacketCommanderClient, state: MotorState):
+def stop_run(client: BinaryPacketCommanderClient, state: MotorState):
     state.running = False
     state.set_target(0.0)
 
 
-def adjust_target(client: PacketCommanderClient, state: MotorState, delta: float):
-    state.target = max(0.0, state.target + delta)
+def adjust_target(client: BinaryPacketCommanderClient, state: MotorState, delta: float):
+    state.commanded_target = max(0.0, state.commanded_target + delta)
     if state.running:
-        state.set_target(state.running_dir * state.target)
+        state.set_target(state.running_dir * state.commanded_target)
 
 
-def draw_ui(stdscr, state: MotorState, message: str = "") -> None:
+SPINNER_CHARS = "|/-\\"
+
+
+def draw_ui(stdscr, state: MotorState, message: str = "", command_lines: Optional[Sequence[str]] = None, spinner_phase: int = 0) -> None:
     def _as_int(val: object):
         return int(val) if isinstance(val, (int, float)) else None
+
+    def _fmt_field(val: object) -> str:
+        if isinstance(val, (int, float)):
+            return f"{float(val):.4f}"
+        if val is None:
+            return "n/a"
+        return str(val)
 
     stdscr.erase()
     # Top bar
@@ -116,7 +126,19 @@ def draw_ui(stdscr, state: MotorState, message: str = "") -> None:
     cmode_name = CONTROL_MODE_NAMES.get(cmode_display, str(cmode_display)) if cmode_display is not None else "unknown"
     enabled_txt = "ENABLED" if state.enable_val else "disabled"
     dir_txt = "CW" if state.running_dir > 0 else ("CCW" if state.running_dir < 0 else "stop")
-    stdscr.addstr(0, 0, f"Mode: {cmode_name} | Motor: {enabled_txt} | Target: {state.target:.3f} | Dir: {dir_txt}")
+    driver_target_val: Optional[float] = None
+    if state.telemetry:
+        telem_target = state.telemetry.values.get(REG_TARGET)
+        if isinstance(telem_target, (int, float)):
+            driver_target_val = float(telem_target)
+    if driver_target_val is None:
+        driver_target_val = state.target
+    drv_txt = f"{driver_target_val:.3f}" if driver_target_val is not None else "n/a"
+    stdscr.addstr(
+        0,
+        0,
+        f"Mode: {cmode_name} | Motor: {enabled_txt} | Cmd tgt: {state.commanded_target:.3f} | Drv tgt: {drv_txt} | Dir: {dir_txt}",
+    )
 
     # Keybindings
     stdscr.addstr(1, 0, "SPACE enable/disable | m cycle mode | ↑/↓ target | PgUp/PgDn big step | f/F full rot | s/S step | r/R run | g plot | q quit")
@@ -132,10 +154,11 @@ def draw_ui(stdscr, state: MotorState, message: str = "") -> None:
         vel = t.values.get(REG_VELOCITY)
         ang = t.values.get(REG_ANGLE)
         pos = t.values.get(REG_POSITION)
+        cmd_txt = f"{state.commanded_target:.4f}"
         stdscr.addstr(
             line,
             0,
-            f"  Target: {tgt!s:>10}  Velocity: {vel!s:>10}  Angle: {ang!s:>10}  Position: {pos!s:>10}",
+            f"  Drv target: {_fmt_field(tgt):>10}  Cmd target: {cmd_txt:>10}  Velocity: {_fmt_field(vel):>10}  Angle: {_fmt_field(ang):>10}  Position: {_fmt_field(pos):>10}",
         )
         line += 1
         en = t.values.get(REGISTER_IDS["enable"])
@@ -179,6 +202,17 @@ def draw_ui(stdscr, state: MotorState, message: str = "") -> None:
     else:
         stdscr.addstr(line, 0, "Telemetry: none received yet")
         line += 1
+
+    cmd_lines = list(command_lines) if command_lines is not None else []
+    if cmd_lines or True:
+        stdscr.addstr(line, 0, "Command log:")
+        line += 1
+        total_lines = max(3, len(cmd_lines))
+        for idx in range(total_lines):
+            entry = cmd_lines[idx] if idx < len(cmd_lines) else "waiting..."
+            spinner_char = SPINNER_CHARS[(spinner_phase + idx) % len(SPINNER_CHARS)]
+            stdscr.addstr(line, 0, f"  {spinner_char} {entry}")
+            line += 1
 
     if message:
         stdscr.addstr(line + 1, 0, f"Status: {message}")

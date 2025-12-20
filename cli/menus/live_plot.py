@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from pysfoc import PacketCommanderClient  # type: ignore[import-not-found]
+from pysfoc import BinaryPacketCommanderClient  # type: ignore[import-not-found]
 from pysfoc.constants import DEFAULT_TELEM_REGS, REG_NAME_MAP, REG_VALUE_FIELDS  # type: ignore[import-not-found]
 
 
@@ -10,7 +10,7 @@ def reg_display_name(reg_id: int) -> str:
     return REG_NAME_MAP.get(reg_id, f"reg{reg_id}")
 
 
-def plot_menu(client: PacketCommanderClient, state) -> None:
+def plot_menu(client: BinaryPacketCommanderClient, state) -> None:
     # Live plot using currently configured telemetry registers (motor 0), scalar-only.
     reg_map = [reg for motor, reg in client.telemetry_headers.get(0, DEFAULT_TELEM_REGS) if motor == 0]
     scalars = []

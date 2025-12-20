@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pysfoc import PacketCommanderClient  # type: ignore[import-not-found]
+from pysfoc import BinaryPacketCommanderClient  # type: ignore[import-not-found]
 from pysfoc.constants import (  # type: ignore[import-not-found]
     DEFAULT_TELEM_REGS,
     REG_NAME_MAP,
@@ -16,7 +16,7 @@ def reg_display_name(reg_id: int) -> str:
     return REG_NAME_MAP.get(reg_id, f"reg{reg_id}")
 
 
-def telemetry_menu(client: PacketCommanderClient, state) -> None:
+def telemetry_menu(client: BinaryPacketCommanderClient, state) -> None:
     available_regs = [
         ("Target", 0x01, "Commanded target (float)"),
         ("Angle", 0x09, "Shaft angle (rad)"),
@@ -38,6 +38,18 @@ def telemetry_menu(client: PacketCommanderClient, state) -> None:
     ]
     while True:
         current = [reg for motor, reg in client.telemetry_headers.get(0, DEFAULT_TELEM_REGS) if motor == 0]
+        invalid_regs = [r for r in current if r not in REG_NAME_MAP]
+        if not current or invalid_regs:
+            # Auto-fix obvious bad header (e.g. stray 0xFF) by re-sending a sane default list.
+            default_regs = [REGISTER_IDS["target"], REGISTER_IDS["enable"], REGISTER_IDS["velocity"], REGISTER_IDS["angle"], REGISTER_IDS["status"]]
+            client.set_telemetry_registers(default_regs)
+            try:
+                client.write_reg(REGISTER_IDS["telemetry_downsample"], 10)
+                client.write_reg(REGISTER_IDS["telemetry_ctrl"], 0)
+            except Exception:
+                pass
+            current = default_regs
+            print("\nTelemetry header looked invalid; reset to default register set.")
         print("\nTelemetry registers (motor 0):")
         print("  Current:", ", ".join([REG_NAME_MAP.get(r, str(r)) for r in current]) or "none")
         try:

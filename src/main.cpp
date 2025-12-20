@@ -130,7 +130,9 @@ void loop() {
   motor.move();     // Target set via streams or defaults
 
   handle_streams(motor);
+#ifndef PACKET_DEBUG
   heartbeat_led(system_running);
+#endif
 }
 
 static void setup_driver_and_motor(bool use_encoder, Sensor *sensor) {

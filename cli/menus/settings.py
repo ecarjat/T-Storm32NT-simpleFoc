@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pysfoc import PacketCommanderClient  # type: ignore[import-not-found]
+from pysfoc import BinaryPacketCommanderClient  # type: ignore[import-not-found]
 from pysfoc.constants import (
     REG_NAME_MAP,
     REGISTER_IDS,
@@ -17,7 +17,7 @@ def reg_display_name(reg_id: int) -> str:
     return REG_NAME_MAP.get(reg_id, f"reg{reg_id}")
 
 
-def settings_menu(client: PacketCommanderClient) -> None:
+def settings_menu(client: BinaryPacketCommanderClient) -> None:
     settings_items = [
         (
             "Pole pairs",
