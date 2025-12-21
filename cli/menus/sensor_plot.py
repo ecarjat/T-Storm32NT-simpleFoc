@@ -30,9 +30,9 @@ def sensor_plot_mode(client: BinaryPacketCommanderClient, state: MotorState, sto
     prev_target = state.commanded_target
     prev_regs = [reg for motor, reg in client.telemetry_headers.get(0, DEFAULT_TELEM_REGS) if motor == 0]
     try:
-        prev_downsample = client.read_reg(REGISTER_IDS["telemetry_downsample"])
+        prev_min_elapsed = client.read_reg(REGISTER_IDS["telemetry_min_elapsed"])
     except Exception:
-        prev_downsample = None
+        prev_min_elapsed = None
 
     state.set_enable(False)
     stop_run_fn(client, state)
@@ -40,7 +40,7 @@ def sensor_plot_mode(client: BinaryPacketCommanderClient, state: MotorState, sto
     target_val = 1.0
     state.set_target(target_val, track_command=True)
     client.set_telemetry_registers([REG_ANGLE, REG_SENSOR_MECH_ANGLE])
-    client.write_reg(REGISTER_IDS["telemetry_downsample"], 100)
+    client.set_telemetry_rate_hz(200.0)
     state.refresh_status()
     state.running = False
     state.open_loop = False
@@ -154,9 +154,9 @@ def sensor_plot_mode(client: BinaryPacketCommanderClient, state: MotorState, sto
             state.set_target(prev_target, track_command=True)
         if prev_regs:
             client.set_telemetry_registers(prev_regs)
-        if prev_downsample is not None:
+        if prev_min_elapsed is not None:
             try:
-                client.write_reg(REGISTER_IDS["telemetry_downsample"], int(prev_downsample))
+                client.write_reg(REGISTER_IDS["telemetry_min_elapsed"], int(prev_min_elapsed))
             except Exception:
                 pass
         state.refresh_status()

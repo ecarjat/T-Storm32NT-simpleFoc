@@ -59,6 +59,7 @@ def run_test_ui(client: BinaryPacketCommanderClient, state: MotorState) -> None:
         message = "SPACE toggles enable/disable; g opens plot"
         last_telem = time.time()
         command_history: Deque[str] = deque(maxlen=3)
+        log_history: Deque[str] = deque(maxlen=10)
         spinner_phase = 0
         spinner_chars = "|/-\\"
         interesting_regs = {
@@ -89,6 +90,17 @@ def run_test_ui(client: BinaryPacketCommanderClient, state: MotorState) -> None:
         client.write_reg = wrapped_write_reg
 
         try:
+            prev_log_packets = getattr(client, "log_packets", False)
+            prev_logger = getattr(client, "_log", None)
+
+            def log_handler(msg: str) -> None:
+                clean = msg.replace("\n", " ").strip()
+                if clean:
+                    log_history.appendleft(clean)
+
+            client.log_packets = True
+            client._log = log_handler
+
             while True:
                 telem = client.poll_telemetry()
                 if telem:
@@ -99,7 +111,7 @@ def run_test_ui(client: BinaryPacketCommanderClient, state: MotorState) -> None:
                         history.append((telem.timestamp - t0, float(tgt), float(vel)))
                     last_telem = time.time()
 
-                draw_ui(stdscr, state, message, list(command_history), spinner_phase)
+                draw_ui(stdscr, state, message, list(command_history), spinner_phase, list(log_history))
                 spinner_phase = (spinner_phase + 1) % len(spinner_chars)
                 message = ""
 
@@ -244,5 +256,10 @@ def run_test_ui(client: BinaryPacketCommanderClient, state: MotorState) -> None:
                     message = "Plot window opened"
         finally:
             client.write_reg = orig_write_reg
+            try:
+                client.log_packets = prev_log_packets
+                client._log = prev_logger
+            except Exception:
+                pass
 
     curses.wrapper(loop)

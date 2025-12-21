@@ -109,7 +109,14 @@ def adjust_target(client: BinaryPacketCommanderClient, state: MotorState, delta:
 SPINNER_CHARS = "|/-\\"
 
 
-def draw_ui(stdscr, state: MotorState, message: str = "", command_lines: Optional[Sequence[str]] = None, spinner_phase: int = 0) -> None:
+def draw_ui(
+    stdscr,
+    state: MotorState,
+    message: str = "",
+    command_lines: Optional[Sequence[str]] = None,
+    spinner_phase: int = 0,
+    log_lines: Optional[Sequence[str]] = None,
+) -> None:
     def _as_int(val: object):
         return int(val) if isinstance(val, (int, float)) else None
 
@@ -204,15 +211,25 @@ def draw_ui(stdscr, state: MotorState, message: str = "", command_lines: Optiona
         line += 1
 
     cmd_lines = list(command_lines) if command_lines is not None else []
-    if cmd_lines or True:
-        stdscr.addstr(line, 0, "Command log:")
+    stdscr.addstr(line, 0, "Command log:")
+    line += 1
+    total_lines = max(3, len(cmd_lines))
+    for idx in range(total_lines):
+        entry = cmd_lines[idx] if idx < len(cmd_lines) else "waiting..."
+        spinner_char = SPINNER_CHARS[(spinner_phase + idx) % len(SPINNER_CHARS)]
+        stdscr.addstr(line, 0, f"  {spinner_char} {entry}")
         line += 1
-        total_lines = max(3, len(cmd_lines))
-        for idx in range(total_lines):
-            entry = cmd_lines[idx] if idx < len(cmd_lines) else "waiting..."
-            spinner_char = SPINNER_CHARS[(spinner_phase + idx) % len(SPINNER_CHARS)]
-            stdscr.addstr(line, 0, f"  {spinner_char} {entry}")
-            line += 1
+
+    log_entries = list(log_lines) if log_lines is not None else []
+    stdscr.addstr(line, 0, "Log messages:")
+    line += 1
+    for idx in range(10):
+        if log_entries:
+            entry = log_entries[idx] if idx < len(log_entries) else ""
+        else:
+            entry = "waiting..." if idx == 0 else ""
+        stdscr.addstr(line, 0, f"  {entry}")
+        line += 1
 
     if message:
         stdscr.addstr(line + 1, 0, f"Status: {message}")

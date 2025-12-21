@@ -61,86 +61,6 @@ class TelemetrySample:
     values: Dict[int, Union[float, List[float]]]
     timestamp: float = 0.0
 
-
-class PacketCommanderClient:
-    """Text client removed; use BinaryPacketCommanderClient instead."""
-
-    def __init__(self, *args, **kwargs):
-        raise RuntimeError("PacketCommanderClient (text) is disabled. Use BinaryPacketCommanderClient.")
-
-    # --- convenience helpers ------------------------------------------------
-    def set_velocity_pid(self, p: float, i: float, d: float):
-        """Set velocity PID gains using PacketCommander registers."""
-        self.write_reg(REG_VEL_PID_P, p)
-        self.write_reg(REG_VEL_PID_I, i)
-        self.write_reg(REG_VEL_PID_D, d)
-
-    def set_velocity_target(self, target: float):
-        self.write_reg(REG_TARGET, target)
-
-    def set_telemetry_rate_hz(self, hz: float):
-        """Set telemetry output rate in Hz using min_elapsed_time (microseconds)."""
-        if hz <= 0:
-            self.write_reg(REGISTER_IDS["telemetry_min_elapsed"], 0)
-            self.write_reg(REG_TELEMETRY_DOWNSAMPLE, 1)
-            return
-        period_us = int(1_000_000 / hz)
-        if period_us < 1:
-            period_us = 1
-        self.write_reg(REG_TELEMETRY_DOWNSAMPLE, 1)
-        self.write_reg(REGISTER_IDS["telemetry_min_elapsed"], period_us)
-
-    def set_enable(self, enable: bool):
-        self.write_reg(REG_ENABLE, 1 if enable else 0)
-
-    def save_settings(self):
-        # Custom packet: "S1" triggers flash save on MCU and responds with SAVE_OK/SAVE_ERR
-        try:
-            self.ser.reset_input_buffer()
-        except Exception:
-            pass
-        self._write_line("S1")
-        deadline = time.time() + 2.0
-        while time.time() < deadline:
-            line = self.ser.readline()
-            if not line:
-                continue
-            try:
-                text = line.decode("ascii", errors="ignore").strip()
-            except Exception:
-                continue
-            if text.startswith("SAVE_OK"):
-                return True
-            if text.startswith("SAVE_ERR"):
-                return False
-        return None
-
-    def run_calibration(self, timeout: float = 10.0):
-        """Trigger sensor calibration via C2 and watch for CAL_OK/CAL_SAVE_ERR text output."""
-        try:
-            self.ser.reset_input_buffer()
-        except Exception:
-            pass
-        self._write_line("C2")
-        deadline = time.time() + timeout
-        result = None
-        while time.time() < deadline and result is None:
-            line = self.ser.readline()
-            if not line:
-                continue
-            try:
-                text = line.decode("ascii", errors="ignore").strip()
-            except Exception:
-                continue
-            if not text:
-                continue
-            if "CAL_OK" in text:
-                result = True
-            elif "CAL_SAVE_ERR" in text:
-                result = False
-        return result
-
-
 class BinaryPacketCommanderClient:
     """
     Binary PacketCommander transport (BinaryIO framing, marker 0xA5).
@@ -412,6 +332,18 @@ class BinaryPacketCommanderClient:
                 values[reg_id] = decoded_val
         sample = TelemetrySample(regs=list(reg_map), values=values, timestamp=time.time())
         return sample
+    
+    def set_telemetry_rate_hz(self, hz: float):
+        """Set telemetry output rate in Hz using min_elapsed_time (microseconds)."""
+        if hz <= 0:
+            self.write_reg(REGISTER_IDS["telemetry_min_elapsed"], 0)
+            self.write_reg(REG_TELEMETRY_DOWNSAMPLE, 1)
+            return
+        period_us = int(1_000_000 / hz)
+        if period_us < 1:
+            period_us = 1
+        self.write_reg(REG_TELEMETRY_DOWNSAMPLE, 1)
+        self.write_reg(REGISTER_IDS["telemetry_min_elapsed"], period_us)
 
     def poll_telemetry(self) -> Optional[TelemetrySample]:
         """Non-blocking poll for telemetry packets. Returns the most recent sample if any."""
