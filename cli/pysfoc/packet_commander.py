@@ -47,6 +47,13 @@ READ_REGEX = re.compile(READ_REGEX_PATTERN, re.IGNORECASE)
 TELEM_HEADER_REGEX = re.compile(TELEM_HEADER_PATTERN)
 TELEM_DATA_REGEX = re.compile(TELEM_DATA_PATTERN)
 
+LOG_LEVEL_NAMES = {
+    0: "DEBUG",
+    1: "INFO",
+    2: "WARN",
+    3: "ERROR",
+}
+
 
 @dataclass
 class TelemetrySample:
@@ -143,6 +150,7 @@ class BinaryPacketCommanderClient:
     PACKET_SAVE_RESP = ord("s")
     PACKET_CAL = ord("C")
     PACKET_CAL_RESP = ord("c")
+    PACKET_LOG = ord("L")
 
     _INT_REGS = {
         REG_STATUS,
@@ -168,11 +176,13 @@ class BinaryPacketCommanderClient:
         timeout: float = 0.3,
         ser: Optional[serial.Serial] = None,
         debug: bool = False,
+        log_packets: bool = False,
         logger: Optional[Callable[[str], None]] = None,
     ):
         self.ser = ser or serial.Serial(port, baudrate=baud, timeout=timeout)
         self.telemetry_headers: Dict[int, List[tuple[int, int]]] = {0: DEFAULT_TELEM_REGS.copy()}
         self.debug = debug
+        self.log_packets = log_packets
         self._log = logger or (lambda msg: print(msg))
         self._rx_buf = bytearray()
 
@@ -306,6 +316,8 @@ class BinaryPacketCommanderClient:
             elif pkt_type == self.PACKET_TELEM:
                 # Consume telemetry silently while waiting for response
                 self._handle_telem_frame(payload)
+            elif pkt_type == self.PACKET_LOG:
+                self._handle_log(payload)
         return None
 
     def _wait_for_command_response(self, resp_type: int, expect_code: int, timeout: float = 1.5) -> Optional[bool]:
@@ -324,6 +336,8 @@ class BinaryPacketCommanderClient:
                 self._handle_telem_header(payload)
             elif pkt_type == self.PACKET_TELEM:
                 self._handle_telem_frame(payload)
+            elif pkt_type == self.PACKET_LOG:
+                self._handle_log(payload)
         return None
 
     def read_reg(self, reg: int):
@@ -408,7 +422,34 @@ class BinaryPacketCommanderClient:
                 sample = self._handle_telem_frame(payload)
                 if sample:
                     latest = sample
+            elif pkt_type == self.PACKET_LOG:
+                self._handle_log(payload)
         return latest
+
+    def _handle_log(self, payload: bytes) -> None:
+        if not self.log_packets:
+            return
+        if len(payload) < 2:
+            return
+        level = payload[0]
+        tag_len = payload[1]
+        idx = 2
+        if idx + tag_len > len(payload):
+            return
+        tag = payload[idx : idx + tag_len].decode("ascii", errors="replace")
+        idx += tag_len
+        if idx >= len(payload):
+            msg_len = 0
+            msg = ""
+        else:
+            msg_len = payload[idx]
+            idx += 1
+            if idx + msg_len > len(payload):
+                msg = payload[idx:].decode("ascii", errors="replace")
+            else:
+                msg = payload[idx : idx + msg_len].decode("ascii", errors="replace")
+        level_name = LOG_LEVEL_NAMES.get(level, f"L{level}")
+        self._log(f"{level_name}/{tag}: {msg}")
 
     def set_telemetry_registers(self, regs: List[int], motor: int = 0):
         """

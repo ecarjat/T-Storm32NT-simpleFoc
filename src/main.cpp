@@ -5,6 +5,7 @@
 #include "calibrated_sensor.h"
 #include "comms_streams.h"
 #include "driver/tle5012b_full_duplex.h"
+#include "log_packet.h"
 #include "motor_config.h"
 #include "runtime_settings.h"
 
@@ -74,20 +75,10 @@ void setup() {
   init_debug_led();
   digitalWrite(STATUS_LED_PIN, HIGH);  // solid on during setup
   init_uart_dma(UART_BAUD);
-  // UART sanity: print serial marker
-#ifdef DEBUG_SERIAL
-  Serial.print("APP_START ");
-  Serial.println(APP_VERSION);
-#endif
   const bool settings_loaded = load_settings_from_flash();
+  bool calibration_loaded = false;
   if (settings_loaded) {
-#ifdef DEBUG_SERIAL
-    Serial.println("SETTINGS_LOADED");
-#endif
   } else {
-#ifdef DEBUG_SERIAL
-    Serial.println("SETTINGS_DEFAULT");
-#endif
   }
 
   // 2) Configuration: use encoder or force open-loop based on board setting.
@@ -104,9 +95,7 @@ void setup() {
       motor.zero_electric_angle = runtime_settings().calibration.zero_electric_angle;
       motor.sensor_direction = static_cast<Direction>(runtime_settings().calibration.direction);
       active_sensor = &calibrated_sensor;
-#ifdef DEBUG_SERIAL
-      Serial.println("CALIBRATION_LOADED");
-#endif
+      calibration_loaded = true;
     } else {
       active_sensor = &encoder_sensor;
     }
@@ -117,6 +106,11 @@ void setup() {
 
   // 5) Initialize UART streams/telemetry.
   init_streams(motor, driver, encoder_sensor, calibrated_sensor);
+  log_packet(LOG_INFO, "APP", APP_VERSION);
+  log_packet(LOG_INFO, "SET", settings_loaded ? "LOADED" : "DEFAULT");
+  if (calibration_loaded) {
+    log_packet(LOG_INFO, "CAL", "LOADED");
+  }
   system_running = true;
 }
 

@@ -1,12 +1,14 @@
 #include "comms_streams.h"
 
 #include <Arduino.h>
+#include <cstdio>
 #include <comms/streams/PacketCommander.h>
 #include <comms/telemetry/Telemetry.h>
 
 #include "board_pins.h"
 #include "calibrated_sensor.h"
 #include "flushing_binary_io.h"
+#include "log_packet.h"
 #include "runtime_settings.h"
 #include "uart_dma_stream.h"
 
@@ -63,9 +65,7 @@ static BinaryIO *stream_io = nullptr;
 
 static bool perform_sensor_calibration() {
   if (!g_motor || !g_driver || !g_raw_sensor || !g_calibrated_sensor) {
-#ifdef DEBUG_SERIAL
-    Serial.println("CAL_ERR");
-#endif
+    log_packet(LOG_ERROR, "CAL", "ERR");
     return false;
   }
   SensorCalibrationData data{};
@@ -75,9 +75,7 @@ static bool perform_sensor_calibration() {
   g_driver->enable();
   bool ok = calibrate_sensor(*g_raw_sensor, *g_motor, data);
   if (!ok) {
-#ifdef DEBUG_SERIAL
-    Serial.println("CAL_ERR");
-#endif
+    log_packet(LOG_ERROR, "CAL", "ERR");
     return false;
   }
 
@@ -90,24 +88,17 @@ static bool perform_sensor_calibration() {
   g_motor->linkSensor(g_calibrated_sensor);
   g_motor->initFOC();
 
-  // Dump LUT for logging/verification before reporting status.
-#ifdef DEBUG_SERIAL
-  Serial.print("CAL_LUT[");
-  Serial.print(data.lut_size);
-  Serial.print("]=");
-  Serial.print("{");
+  // Dump LUT entries via log packets for host capture.
+  char msg[60] = {0};
   for (uint16_t i = 0; i < data.lut_size; i++) {
-    if (i > 0) Serial.print(", ");
-    Serial.print(data.lut[i], 6);
+    snprintf(msg, sizeof(msg), "LUT[%u]=%.6f", static_cast<unsigned>(i), data.lut[i]);
+    log_packet(LOG_INFO, "CAL", msg);
   }
-  Serial.println("}");
-  Serial.print("CAL_ZERO=");
-  Serial.println(data.zero_electric_angle, 6);
-  Serial.print("CAL_DIR=");
-  Serial.println(data.direction);
-
-  Serial.println(saved ? "CAL_OK" : "CAL_SAVE_ERR");
-#endif
+  snprintf(msg, sizeof(msg), "ZERO=%.6f", data.zero_electric_angle);
+  log_packet(LOG_INFO, "CAL", msg);
+  snprintf(msg, sizeof(msg), "DIR=%u", static_cast<unsigned>(data.direction));
+  log_packet(LOG_INFO, "CAL", msg);
+  log_packet(saved ? LOG_INFO : LOG_ERROR, "CAL", saved ? "OK" : "SAVE_ERR");
   return saved;
 }
 
@@ -200,6 +191,7 @@ void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, 
 #ifdef PACKET_DEBUG
   debug_led_init();
 #endif
+  init_log_stream(*stream_io);
   packet_commander.addMotor(&motor);
   packet_commander.init(*stream_io);
 
@@ -220,6 +212,18 @@ void handle_streams(BLDCMotor &motor) {
 #ifdef PACKET_DEBUG
   dbg_telemetry_active = true;
   debug_led_tick();
+#endif
+#ifdef DEBUG_SERIAL
+  static uint32_t last_dbg_time = 0;
+  const uint32_t now = millis();
+  if (now - last_dbg_time >= 1000) {
+    last_dbg_time = now;
+    
+
+    char msg[60];
+    snprintf(msg, sizeof(msg), "ANG: %.3f VEL: %.3f", angle, velocity);
+    log_packet(LOG_DEBUG, "DBG", msg);
+  }
 #endif
 
 }

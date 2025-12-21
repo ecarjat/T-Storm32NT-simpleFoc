@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include "utility/spi_com.h"
+#include "log_packet.h"
 extern "C" uint32_t spi_getClkFreqInst(SPI_TypeDef *spi_inst);
 
 #define TLE5012B_CPR 32768.0f
@@ -99,9 +100,7 @@ void TLE5012BFullDuplex::init() {
   }
 
   if (HAL_SPI_Init(&_spi) != HAL_OK) {
-#ifdef DEBUG_SERIAL
-    Serial.println("TLE5012B full-duplex init error");
-#endif
+    log_packet(LOG_ERROR, "TLE5012B", "SPI_INIT_ERR");
   }
 }
 

@@ -57,9 +57,12 @@ def main():
     parser.add_argument("--rearm-seconds", type=float, default=2.0, help="If no telemetry for this many seconds, reapply register list")
     parser.add_argument("--quiet", action="store_true", help="Only print values; suppress connection banner")
     parser.add_argument("--listen-only", action="store_true", help="Do not configure telemetry; just parse incoming frames using the provided reg list")
+    parser.add_argument("--log-only", action="store_true", help="Only display BinaryIO log packets (type 'L'); ignore telemetry output")
     args = parser.parse_args()
 
-    client = BinaryPacketCommanderClient(args.port, args.baud, debug=args.debug_frames)
+    if args.log_only:
+        args.listen_only = True
+    client = BinaryPacketCommanderClient(args.port, args.baud, debug=args.debug_frames, log_packets=args.log_only)
     try:
         client.ser.reset_input_buffer()
     except Exception:
@@ -74,8 +77,11 @@ def main():
     reg_names = {reg: REG_NAME_MAP.get(reg, f"reg{reg}") for reg in args.regs}
 
     if not args.quiet:
-        print(f"Telemetry on {args.port} @ {args.baud} baud")
-        print("Registers:", ", ".join(f"{reg_names[r]}({r})" for r in args.regs))
+        if args.log_only:
+            print(f"Logs on {args.port} @ {args.baud} baud")
+        else:
+            print(f"Telemetry on {args.port} @ {args.baud} baud")
+            print("Registers:", ", ".join(f"{reg_names[r]}({r})" for r in args.regs))
         print("Press Ctrl-C to stop.\n")
 
     try:
@@ -92,6 +98,9 @@ def main():
                         print(f"[rearm {time.monotonic():.3f}] reapplied regs={args.regs} downsample={args.downsample} ctrl={args.controller}")
                     last_telem = time.monotonic()
                 time.sleep(0.01)
+                continue
+            if args.log_only:
+                last_telem = time.monotonic()
                 continue
             last_telem = time.monotonic()
             parts: List[str] = []
