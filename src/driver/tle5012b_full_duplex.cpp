@@ -5,6 +5,7 @@
 #include <cmath>
 #include "utility/spi_com.h"
 #include "log_packet.h"
+#include "status_led.h"
 extern "C" uint32_t spi_getClkFreqInst(SPI_TypeDef *spi_inst);
 
 #define TLE5012B_CPR 32768.0f
@@ -101,6 +102,7 @@ void TLE5012BFullDuplex::init() {
 
   if (HAL_SPI_Init(&_spi) != HAL_OK) {
     log_packet(LOG_ERROR, "TLE5012B", "SPI_INIT_ERR");
+    status_led_set_critical_fault(true);
   }
 }
 

@@ -124,7 +124,7 @@ Enforcement guideline:
 
 ## Packet Error Visibility (Optional)
 
-If `PACKET_DEBUG` is enabled, use LED pulses for unexpected packet type,
+Use LED pulses for unexpected packet type,
 bad length, or incomplete read (already defined in PacketDebug.md).
 Do not use `Serial` for packet diagnostics unless `DEBUG_SERIAL` is on.
 

@@ -78,6 +78,18 @@ class PacketCommanderClient:
     def set_velocity_target(self, target: float):
         self.write_reg(REG_TARGET, target)
 
+    def set_telemetry_rate_hz(self, hz: float):
+        """Set telemetry output rate in Hz using min_elapsed_time (microseconds)."""
+        if hz <= 0:
+            self.write_reg(REGISTER_IDS["telemetry_min_elapsed"], 0)
+            self.write_reg(REG_TELEMETRY_DOWNSAMPLE, 1)
+            return
+        period_us = int(1_000_000 / hz)
+        if period_us < 1:
+            period_us = 1
+        self.write_reg(REG_TELEMETRY_DOWNSAMPLE, 1)
+        self.write_reg(REGISTER_IDS["telemetry_min_elapsed"], period_us)
+
     def set_enable(self, enable: bool):
         self.write_reg(REG_ENABLE, 1 if enable else 0)
 
@@ -162,6 +174,7 @@ class BinaryPacketCommanderClient:
     }
     _INT32_REGS = {
         REG_TELEMETRY_DOWNSAMPLE,
+        REGISTER_IDS["telemetry_min_elapsed"],
         0x15,  # sensor timestamp
     }
     _SIZE_OVERRIDES = {

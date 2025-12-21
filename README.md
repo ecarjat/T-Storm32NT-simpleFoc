@@ -78,6 +78,10 @@ The firmware uses BinaryIO framing on UART (PA9/PA10) for PacketCommander and Te
 A reserved flash page (0x0800FC00) stores selected motor/driver settings. `S1` packets (or the CLI “Save” action) invoke `save_settings_to_flash` in firmware. On boot the app prints `SETTINGS_LOADED` when valid data is applied, otherwise `SETTINGS_DEFAULT`.
 
 ## Notes
+- SimpleFOC PWM timer usage (STM32F103T8):
+  - M0 T0 = TIM2 CH4
+  - M0 T1 = TIM3 CH3
+  - M0 T2 = TIM3 CH4
 - Heartbeat/status LED is on PA1.
 - Bootloader uses the same UART at 115200; slow blink indicates boot mode, solid/on-then-blink indicates app running.
 - Always refer to `Hardware.md` for pin mappings and constraints. No FAULT/ENABLE lines and no current sensing are present on this hardware.

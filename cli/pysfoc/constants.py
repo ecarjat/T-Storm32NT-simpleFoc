@@ -24,6 +24,7 @@ REGISTER_IDS = {
     "telemetry_reg": 0x1A,
     "telemetry_ctrl": 0x1B,
     "telemetry_downsample": 0x1C,
+    "telemetry_min_elapsed": 0x1E,
     "vel_pid_p": 0x30,
     "vel_pid_i": 0x31,
     "vel_pid_d": 0x32,
@@ -51,6 +52,7 @@ REG_SENSOR_TS = REGISTER_IDS["sensor_ts"]
 REG_TELEMETRY_REG = REGISTER_IDS["telemetry_reg"]
 REG_TELEMETRY_CTRL = REGISTER_IDS["telemetry_ctrl"]
 REG_TELEMETRY_DOWNSAMPLE = REGISTER_IDS["telemetry_downsample"]
+REG_TELEMETRY_MIN_ELAPSED = REGISTER_IDS["telemetry_min_elapsed"]
 REG_VEL_PID_P = REGISTER_IDS["vel_pid_p"]
 REG_VEL_PID_I = REGISTER_IDS["vel_pid_i"]
 REG_VEL_PID_D = REGISTER_IDS["vel_pid_d"]

@@ -44,7 +44,7 @@ def telemetry_menu(client: BinaryPacketCommanderClient, state) -> None:
             default_regs = [REGISTER_IDS["target"], REGISTER_IDS["enable"], REGISTER_IDS["velocity"], REGISTER_IDS["angle"], REGISTER_IDS["status"]]
             client.set_telemetry_registers(default_regs)
             try:
-                client.write_reg(REGISTER_IDS["telemetry_downsample"], 10)
+                client.set_telemetry_rate_hz(200.0)
                 client.write_reg(REGISTER_IDS["telemetry_ctrl"], 0)
             except Exception:
                 pass
@@ -57,18 +57,23 @@ def telemetry_menu(client: BinaryPacketCommanderClient, state) -> None:
         except Exception:
             ctrl = None
         try:
-            downsample_val = client.read_reg(REGISTER_IDS["telemetry_downsample"])
+            min_elapsed = client.read_reg(REGISTER_IDS["telemetry_min_elapsed"])
         except Exception:
-            downsample_val = None
+            min_elapsed = None
         if ctrl is not None:
             print(f"  Telemetry controller index (REG_TELEMETRY_CTRL): {int(ctrl)}")
-        if downsample_val is not None:
-            print(f"  Telemetry downsample (REG_TELEMETRY_DOWNSAMPLE): {int(downsample_val)} (0 disables)")
+        if min_elapsed is not None:
+            min_elapsed = int(min_elapsed)
+            if min_elapsed > 0:
+                hz = 1_000_000.0 / min_elapsed
+                print(f"  Telemetry rate (REG_TELEMETRY_MIN_ELAPSED): {hz:.2f} Hz ({min_elapsed} us)")
+            else:
+                print("  Telemetry rate (REG_TELEMETRY_MIN_ELAPSED): disabled (0 us)")
         print("\nAvailable choices:")
         for idx, (label, reg, desc) in enumerate(available_regs, start=1):
             mark = "*" if reg in current else " "
             print(f"  {idx}) [{mark}] {label} (reg {reg}) - {desc}")
-        print("Enter comma-separated numbers to set the list in order, 'cX' to set telemetry controller (e.g. c0), 'dN' to set downsample (e.g. d50), or 'q' to return.")
+        print("Enter comma-separated numbers to set the list in order, 'cX' to set telemetry controller (e.g. c0), 'hN' to set Hz (e.g. h200), or 'q' to return.")
         choice = input("Selection: ").strip().lower()
         if choice == "q":
             break
@@ -80,13 +85,16 @@ def telemetry_menu(client: BinaryPacketCommanderClient, state) -> None:
             except ValueError:
                 print("Invalid controller index.")
             continue
-        if choice.startswith("d") and len(choice) > 1:
+        if choice.startswith("h") and len(choice) > 1:
             try:
-                ds_val = int(choice[1:])
-                client.write_reg(REGISTER_IDS["telemetry_downsample"], ds_val)
-                print(f"Set REG_TELEMETRY_DOWNSAMPLE to {ds_val}")
+                hz_val = float(choice[1:])
+                client.set_telemetry_rate_hz(hz_val)
+                if hz_val <= 0:
+                    print("Telemetry disabled.")
+                else:
+                    print(f"Set telemetry rate to {hz_val:g} Hz")
             except ValueError:
-                print("Invalid downsample value.")
+                print("Invalid Hz value.")
             continue
         if not choice:
             continue

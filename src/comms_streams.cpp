@@ -10,40 +10,8 @@
 #include "flushing_binary_io.h"
 #include "log_packet.h"
 #include "runtime_settings.h"
+#include "status_led.h"
 #include "uart_dma_stream.h"
-
-#ifdef PACKET_DEBUG
-static bool dbg_led_initialized = false;
-static bool dbg_telemetry_active = false;
-static uint32_t dbg_pulse_until_ms = 0;
-static constexpr uint16_t DBG_PULSE_MS = 100;
-
-static inline void debug_led_init() {
-  if (dbg_led_initialized) return;
-  pinMode(STATUS_LED_PIN, OUTPUT);
-  digitalWrite(STATUS_LED_PIN, LOW);
-  dbg_led_initialized = true;
-}
-
-static inline void debug_led_tick() {
-  if (!dbg_led_initialized) return;
-  const uint32_t now = millis();
-  const bool pulse_active = dbg_pulse_until_ms && ((int32_t)(dbg_pulse_until_ms - now) > 0);
-  if (!pulse_active) {
-    dbg_pulse_until_ms = 0;
-  }
-  bool state = dbg_telemetry_active;
-  if (pulse_active) {
-    state = !state;
-  }
-  digitalWrite(STATUS_LED_PIN, state ? HIGH : LOW);
-}
-
-static inline void debug_led_pulse() {
-  debug_led_init();
-  dbg_pulse_until_ms = millis() + DBG_PULSE_MS;
-}
-#endif
 
 // Forward pointers/state for settings and calibration handling.
 static BLDCDriver3PWM *g_driver = nullptr;
@@ -127,11 +95,9 @@ public:
         _io->in_sync = false;
         bad_packet = true;
       }
-#ifdef PACKET_DEBUG
       if (bad_packet) {
-        debug_led_pulse();
+        status_led_pulse();
       }
-#endif
     }
   }
 
@@ -188,17 +154,14 @@ void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, 
   g_raw_sensor = &raw_sensor;
   g_calibrated_sensor = &calibrated;
 
-#ifdef PACKET_DEBUG
-  debug_led_init();
-#endif
   init_log_stream(*stream_io);
   packet_commander.addMotor(&motor);
   packet_commander.init(*stream_io);
 
   telemetry.addMotor(&motor);
   telemetry.setTelemetryRegisters(sizeof(telemetry_registers), telemetry_registers);
-  telemetry.downsample = 100;      // send every 100 loop iterations by default
-  telemetry.min_elapsed_time = 0;  // no additional rate limit
+  telemetry.downsample = 1;      // allow every loop; rate-limited by min_elapsed_time
+  telemetry.min_elapsed_time = 2000;  // 500 Hz default
   telemetry.init(*stream_io);
 }
 
@@ -209,23 +172,6 @@ void handle_streams(BLDCMotor &motor) {
   }
   packet_commander.run();
   telemetry.run();
-#ifdef PACKET_DEBUG
-  dbg_telemetry_active = true;
-  debug_led_tick();
-#endif
-#ifdef DEBUG_SERIAL
-  static uint32_t last_dbg_time = 0;
-  const uint32_t now = millis();
-  if (now - last_dbg_time >= 1000) {
-    last_dbg_time = now;
-    
-
-    char msg[60];
-    snprintf(msg, sizeof(msg), "ANG: %.3f VEL: %.3f", angle, velocity);
-    log_packet(LOG_DEBUG, "DBG", msg);
-  }
-#endif
-
 }
 
 // Write magic to backup register and reset into bootloader
