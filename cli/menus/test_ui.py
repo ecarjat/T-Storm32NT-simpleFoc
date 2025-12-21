@@ -182,11 +182,11 @@ def run_test_ui(client: BinaryPacketCommanderClient, state: MotorState) -> None:
                     do_run(client, state, direction=-1)
                     message = "Run reverse"
                 elif ch == curses.KEY_UP:
-                    step = 1.0 if state.control_mode == CONTROL_MODE_IDS["velocity"] else 0.1
+                    step = 1.0 if state.control_mode == CONTROL_MODE_IDS["velocity"] else 0.01
                     state.commanded_target += step
                     state.set_target(state.commanded_target)
                 elif ch == curses.KEY_DOWN:
-                    step = 1.0 if state.control_mode == CONTROL_MODE_IDS["velocity"] else 0.1
+                    step = 1.0 if state.control_mode == CONTROL_MODE_IDS["velocity"] else 0.01
                     state.commanded_target = max(0.0, state.commanded_target - step)
                     state.set_target(state.commanded_target)
                 elif ch == curses.KEY_PPAGE:  # PageUp

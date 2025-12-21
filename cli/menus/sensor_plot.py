@@ -3,8 +3,8 @@ from __future__ import annotations
 import math
 from collections import deque
 
-from pysfoc import CONTROL_MODE_IDS, REG_ANGLE, REG_SENSOR_MECH_ANGLE, REG_TARGET  # type: ignore[import-not-found]
-from pysfoc.constants import DEFAULT_TELEM_REGS, REGISTER_IDS, REG_NAME_MAP  # type: ignore[import-not-found]
+from pysfoc import CONTROL_MODE_IDS  # type: ignore[import-not-found]
+from pysfoc.constants import DEFAULT_TELEM_REGS, REGISTER_IDS, REG_NAME_MAP, REG_ANGLE, REG_SENSOR_MECH_ANGLE, REG_SENSOR_ANGLE  # type: ignore[import-not-found]
 from pysfoc.packet_commander import BinaryPacketCommanderClient  # type: ignore[import-not-found]
 from pysfoc.api import MotorState  # type: ignore[import-not-found]
 
@@ -39,7 +39,7 @@ def sensor_plot_mode(client: BinaryPacketCommanderClient, state: MotorState, sto
     state.set_control_mode(CONTROL_MODE_IDS["torque"])
     target_val = 1.0
     state.set_target(target_val, track_command=True)
-    client.set_telemetry_registers([REG_ANGLE, REG_SENSOR_MECH_ANGLE])
+    client.set_telemetry_registers([REG_ANGLE, REG_SENSOR_ANGLE])
     client.set_telemetry_rate_hz(200.0)
     state.refresh_status()
     state.running = False

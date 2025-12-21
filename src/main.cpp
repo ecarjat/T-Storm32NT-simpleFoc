@@ -26,10 +26,11 @@ static uint32_t loop_samples = 0;
 static uint32_t loop_max_us = 0;
 static uint32_t loop_last_ts = 0;
 
-static volatile bool control_isr_active = false;
+volatile bool control_isr_active = false;
+volatile bool control_loop_enabled = true;
 
 // SimppleFOC loop frequency
-constexpr unsigned long CONTROL_FREQUENCY = 2000; // Hz
+constexpr unsigned long CONTROL_FREQUENCY = 2500;  // Hz
 
 // UART1 is the primary host interface (PA9/PA10).
 constexpr unsigned long UART_BAUD = 460800;
@@ -152,6 +153,10 @@ void setup() {
 }
 
 static void control_timer_isr() {
+  if (!control_loop_enabled) {
+    return;
+  }
+  digitalWrite(STATUS_LED_PIN, HIGH);
   if (control_isr_active) {
     status_led_pulse_isr();
     return;
@@ -191,6 +196,7 @@ static void log_timer() {
 }
 
 void loop() {
+  digitalWrite(STATUS_LED_PIN, LOW);
   const uint32_t now = micros();
   if (loop_last_ts != 0) {
     const uint32_t delta = now - loop_last_ts;
@@ -215,7 +221,8 @@ void loop() {
     log_timer();
   }
   handle_streams(motor);
-  status_led_tick();
+  digitalWrite(STATUS_LED_PIN, HIGH);
+  // status_led_tick();
 }
 
 static void setup_driver_and_motor(bool use_encoder, Sensor* sensor) {

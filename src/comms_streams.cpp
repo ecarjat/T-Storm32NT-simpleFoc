@@ -13,6 +13,9 @@
 #include "status_led.h"
 #include "uart_dma_stream.h"
 
+extern volatile bool control_isr_active;
+extern volatile bool control_loop_enabled;
+
 // Forward pointers/state for settings and calibration handling.
 static BLDCDriver3PWM *g_driver = nullptr;
 static BLDCMotor *g_motor = nullptr;
@@ -36,6 +39,17 @@ static bool perform_sensor_calibration() {
     log_packet(LOG_ERROR, "CAL", "ERR");
     return false;
   }
+  control_loop_enabled = false;
+  uint32_t wait_us = 0;
+  while (control_isr_active) {
+    delayMicroseconds(100);
+    wait_us += 100;
+    if (wait_us >= 1000000) {
+      log_packet(LOG_ERROR, "CAL", "ISR_BUSY");
+      control_loop_enabled = true;
+      return false;
+    }
+  }
   SensorCalibrationData data{};
   data.lut_size = motor_config::CAL_LUT_SIZE;
 
@@ -44,6 +58,7 @@ static bool perform_sensor_calibration() {
   bool ok = calibrate_sensor(*g_raw_sensor, *g_motor, data);
   if (!ok) {
     log_packet(LOG_ERROR, "CAL", "ERR");
+    control_loop_enabled = true;
     return false;
   }
 
@@ -67,6 +82,7 @@ static bool perform_sensor_calibration() {
   snprintf(msg, sizeof(msg), "DIR=%u", static_cast<unsigned>(data.direction));
   log_packet(LOG_INFO, "CAL", msg);
   log_packet(saved ? LOG_INFO : LOG_ERROR, "CAL", saved ? "OK" : "SAVE_ERR");
+  control_loop_enabled = true;
   return saved;
 }
 
