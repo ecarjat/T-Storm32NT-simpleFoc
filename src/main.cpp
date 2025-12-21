@@ -70,10 +70,10 @@ void setup() {
   digitalWrite(STATUS_LED_PIN, LOW);
   delay(200);
 
-  // 1) Init basic IO (LED + UART clocking) early.
+  // 1) Init basic IO (LED + UART DMA) early.
   init_debug_led();
   digitalWrite(STATUS_LED_PIN, HIGH);  // solid on during setup
-  init_uart_comms(UART_BAUD);
+  init_uart_dma(UART_BAUD);
   // UART sanity: print serial marker
 #ifdef DEBUG_SERIAL
   Serial.print("APP_START ");

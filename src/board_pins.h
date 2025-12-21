@@ -30,5 +30,6 @@ constexpr bool BOARD_USE_ENCODER = true; // Set false to force sensorless (open-
 
 // Basic board/peripheral init helpers (implemented by Board & HAL agent)
 void init_debug_led();
-void init_uart_comms(unsigned long baud);
+void init_uart_dma(unsigned long baud);
+void init_uart_comms(unsigned long baud); // legacy wrapper, forwards to DMA init
 void read_strap_pins(bool &strap0_low, bool &strap1_low);

@@ -5,7 +5,7 @@
 
 // UART streams/telemetry bridge using Arduino-FOC-drivers comms API.
 // PacketCommander handles register R/W, Telemetry periodically publishes key registers.
-// Transport is Arduino Stream-compatible (UART1 / Serial on PA9/PA10).
+// Transport is Arduino Stream-compatible (UART1 DMA stream on PA9/PA10).
 void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, StoredCalibratedSensor &calibrated);
 void handle_streams(BLDCMotor &motor);
 

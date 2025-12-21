@@ -8,6 +8,7 @@
 #include "calibrated_sensor.h"
 #include "flushing_binary_io.h"
 #include "runtime_settings.h"
+#include "uart_dma_stream.h"
 
 #ifdef PACKET_DEBUG
 static bool dbg_led_initialized = false;
@@ -189,8 +190,8 @@ static BootPacketCommander packet_commander(/*echo=*/true);
 constexpr uint16_t BOOT_MAGIC = 0xB007;
 
 void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, StoredCalibratedSensor &calibrated) {
-  static FlushingBinaryIO serial_io(Serial);
-  stream_io = &serial_io;
+  static FlushingBinaryIO dma_io(uart_dma_stream());
+  stream_io = &dma_io;
   g_driver = &driver;
   g_motor = &motor;
   g_raw_sensor = &raw_sensor;
