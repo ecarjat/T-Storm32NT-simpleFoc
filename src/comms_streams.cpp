@@ -128,15 +128,15 @@ protected:
       }
       return true;
     }
-    if (packet.type == 'S') {
+    if (packet.type == 'W') {
       uint8_t code = 0;
       *_io >> code;
       if (code == 1 && motors[curMotor] && g_driver) {
         // PacketCommander stores FOCMotor*, but we add a BLDCMotor so this cast is safe here.
         auto *m = static_cast<BLDCMotor *>(motors[curMotor]);
         bool ok = save_settings_to_flash(*m, *g_driver);
-        // Respond with s1=1 (ok) or s1=0 (fail) over BinaryIO.
-        *_io << START_PACKET('s', 2) << (uint8_t)1 << Separator('=') << (uint8_t)(ok ? 1 : 0) << END_PACKET;
+        // Respond with w1=1 (ok) or w1=0 (fail) over BinaryIO.
+        *_io << START_PACKET('w', 2) << (uint8_t)1 << Separator('=') << (uint8_t)(ok ? 1 : 0) << END_PACKET;
       }
       return true;
     }
