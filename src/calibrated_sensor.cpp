@@ -1,15 +1,16 @@
 #include "calibrated_sensor.h"
 
 #include <Arduino.h>
+
 #include <cmath>
 #include <vector>
 
 #include "motor_config.h"
 
-StoredCalibratedSensor::StoredCalibratedSensor(Sensor &wrapped)
+StoredCalibratedSensor::StoredCalibratedSensor(Sensor& wrapped)
     : wrapped_(wrapped), calibration_(nullptr) {}
 
-void StoredCalibratedSensor::setCalibrationData(SensorCalibrationData *data) {
+void StoredCalibratedSensor::setCalibrationData(SensorCalibrationData* data) {
   calibration_ = data;
 }
 
@@ -23,15 +24,34 @@ void StoredCalibratedSensor::init() {
   this->Sensor::init();
 }
 
+static inline float quantize_angle(float a, int drop_bits) {
+  // a expected in [0, 2pi)
+  const int cpr = 32768;            // your real CPR
+  const int step = 1 << drop_bits;  // 2 for drop 1 bit, 4 for drop 2 bits
+  const float counts_f = a * (cpr / _2PI);
+
+  int counts = (int)lroundf(counts_f);  // round to nearest count
+  counts = (counts / step) * step;      // quantize to coarser steps
+  counts &= (cpr - 1);                  // wrap 0..cpr-1
+
+  return counts * (_2PI / cpr);
+}
+
 float StoredCalibratedSensor::getSensorAngle() {
+  float raw_angle;
   if (!calibration_ || !calibration_->valid || calibration_->lut_size == 0) {
-    return wrapped_.getMechanicalAngle();
+    // return wrapped_.getMechanicalAngle();
+    /* replace with quantization*/
+    raw_angle = fmodf(wrapped_.getMechanicalAngle(), _2PI);
+    if (raw_angle < 0) raw_angle += _2PI;
+    return quantize_angle(raw_angle, 1);  // drop 1 bit here
+    /* end replacement*/
   }
 
-  const float *lut = calibration_->lut;
+  const float* lut = calibration_->lut;
   const int lut_size = static_cast<int>(calibration_->lut_size);
 
-  float raw_angle = fmodf(wrapped_.getMechanicalAngle(), _2PI);
+  raw_angle = fmodf(wrapped_.getMechanicalAngle(), _2PI);
   if (raw_angle < 0) {
     raw_angle += _2PI;
   }
@@ -43,10 +63,18 @@ float StoredCalibratedSensor::getSensorAngle() {
   const float distance = (raw_angle - lut_index * lut_resolution) / lut_resolution;
   const float offset = (1.0f - distance) * y0 + distance * y1;
 
-  return raw_angle - offset;
+  /* replace with quantization*/
+  float corrected = raw_angle - offset;
+  // wrap into [0,2pi)
+  corrected = fmodf(corrected, _2PI);
+  if (corrected < 0) corrected += _2PI;
+
+  return quantize_angle(corrected, 1);
+  /* end replacement*/
+  // return raw_angle - offset;
 }
 
-static void filter_error(std::vector<float> &error, float &error_mean, int n_ticks, int window) {
+static void filter_error(std::vector<float>& error, float& error_mean, int n_ticks, int window) {
   std::vector<float> window_buffer(window, 0.0f);
   float window_sum = 0.0f;
   int buffer_index = 0;
@@ -69,11 +97,12 @@ static void filter_error(std::vector<float> &error, float &error_mean, int n_tic
   }
 }
 
-bool calibrate_sensor(Sensor &wrapped, BLDCMotor &motor, SensorCalibrationData &out, int settle_time_ms) {
+bool calibrate_sensor(Sensor& wrapped, BLDCMotor& motor, SensorCalibrationData& out,
+                      int settle_time_ms) {
   out.valid = false;
   out.lut_size = motor_config::CAL_LUT_SIZE;
 
-  Print *dbg = motor.monitor_port;
+  Print* dbg = motor.monitor_port;
   if (dbg) dbg->println("CAL: start");
 
   const int n_pos = 5;
@@ -84,7 +113,7 @@ bool calibrate_sensor(Sensor &wrapped, BLDCMotor &motor, SensorCalibrationData &
   std::vector<float> error(n_ticks, 0.0f);
   const int window = n_pos;
 
-  CurrentSense *current_sense = motor.current_sense;
+  CurrentSense* current_sense = motor.current_sense;
   motor.current_sense = nullptr;
   motor.linkSensor(&wrapped);
   if (!motor.initFOC()) {
@@ -113,10 +142,13 @@ bool calibrate_sensor(Sensor &wrapped, BLDCMotor &motor, SensorCalibrationData &
     }
     _delay(settle_time_ms);
     wrapped.update();
-    float theta_actual = static_cast<int>(motor.sensor_direction) * (wrapped.getAngle() - theta_init);
+    float theta_actual =
+        static_cast<int>(motor.sensor_direction) * (wrapped.getAngle() - theta_init);
     error[i] = 0.5f * (theta_actual - elec_angle / n_pp);
 
-    float zero_angle = (static_cast<int>(motor.sensor_direction) * wrapped.getMechanicalAngle() * n_pp) - (elec_angle + _PI_2);
+    float zero_angle =
+        (static_cast<int>(motor.sensor_direction) * wrapped.getMechanicalAngle() * n_pp) -
+        (elec_angle + _PI_2);
     zero_angle = _normalizeAngle(zero_angle);
     if (zero_angle - zero_angle_prev > _PI) {
       zero_angle -= _2PI;
@@ -137,10 +169,13 @@ bool calibrate_sensor(Sensor &wrapped, BLDCMotor &motor, SensorCalibrationData &
     }
     _delay(settle_time_ms);
     wrapped.update();
-    float theta_actual = static_cast<int>(motor.sensor_direction) * (wrapped.getAngle() - theta_init);
+    float theta_actual =
+        static_cast<int>(motor.sensor_direction) * (wrapped.getAngle() - theta_init);
     error[i] += 0.5f * (theta_actual - elec_angle / n_pp);
 
-    float zero_angle = (static_cast<int>(motor.sensor_direction) * wrapped.getMechanicalAngle() * n_pp) - (elec_angle + _PI_2);
+    float zero_angle =
+        (static_cast<int>(motor.sensor_direction) * wrapped.getMechanicalAngle() * n_pp) -
+        (elec_angle + _PI_2);
     zero_angle = _normalizeAngle(zero_angle);
     if (zero_angle - zero_angle_prev > _PI) {
       zero_angle -= _2PI;

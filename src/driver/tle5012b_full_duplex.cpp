@@ -161,8 +161,8 @@ uint16_t TLE5012BFullDuplex::readRawAngle() {
     return last_good;
   }
   last_good = angle;
-  //angle &= 0xFFFE;  // drop 1 LSB
-  angle &= 0xFFFC; // drop 2 LSBs (quantize to 4-count steps)
+  // angle &= 0xFFFE;  // drop 1 LSB
+  // angle &= 0xFFFC; // drop 2 LSBs (quantize to 4-count steps)
   return angle;
 }
 
