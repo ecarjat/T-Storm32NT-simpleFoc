@@ -126,7 +126,7 @@ void setup() {
     } else {
       active_sensor = &encoder_sensor;
     }
-    active_sensor->min_elapsed_time = 0.00500;  // 200 Hz update rate
+    active_sensor->min_elapsed_time = 0.005f;  // 200 Hz update rate
   }
 
   // 4) Configure driver + motor objects and run FOC alignment.
@@ -209,6 +209,7 @@ void loop() {
       snprintf(msg, sizeof(msg), "HZ=%lu MAX=%lu", static_cast<unsigned long>(hz),
                static_cast<unsigned long>(loop_max_us));
       log_packet(LOG_INFO, "LOOP", msg);
+      encoder_sensor.logStatusBits(); 
       loop_total_us = 0;
       loop_samples = 0;
       loop_max_us = 0;
