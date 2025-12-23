@@ -16,14 +16,17 @@ namespace motor_config {
 // Calibration lookup table sizing
 constexpr size_t CAL_LUT_SIZE = 50;
 
+// Driver parameters
+constexpr unsigned long DRIVER_PWM_FREQUENCY = 25000; // Hz, adjust per DRV8313/efficiency
+
 // Electrical parameters (update based on motor datasheet/measurement)
 constexpr int POLE_PAIRS = 7;               // TODO: replace with actual pole pairs
 constexpr float PHASE_RESISTANCE = 8.0f;    // Ohms, optional for monitoring
-constexpr float KV_RATING = 200.0f;           // RPM/V, optional for reference
+constexpr float KV_RATING = 130.0f;           // RPM/V, optional for reference
 
 // Voltage configuration
 constexpr float SUPPLY_VOLTAGE = 12.6f;     // Input supply powering DRV8313
-constexpr float DRIVER_VOLTAGE_LIMIT = 8.0f; // Conservative starting limit
+constexpr float DRIVER_VOLTAGE_LIMIT = 12.0f; // Conservative starting limit
 constexpr float MOTOR_VOLTAGE_LIMIT = 4.0f; // Conservative starting limit
 
 // Control targets (safe defaults)

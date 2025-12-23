@@ -230,7 +230,7 @@ static void setup_driver_and_motor(bool use_encoder, Sensor* sensor) {
   apply_settings_to_objects(motor, driver);
 
   // Driver settings for DRV8313 (3-PWM, no enable/fault GPIO).
-  driver.pwm_frequency = 20000;  // Hz, adjust per DRV8313/efficiency
+  driver.pwm_frequency = motor_config::DRIVER_PWM_FREQUENCY;  // Hz, adjust per DRV8313/efficiency
   driver.init();
 
   // Motor configuration: with encoder = closed-loop velocity, without = open-loop velocity.
