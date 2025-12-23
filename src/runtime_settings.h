@@ -25,8 +25,10 @@ struct RuntimeSettings {
   float pid_p = motor_config::PID_P;
   float pid_i = motor_config::PID_I;
   float pid_d = motor_config::PID_D;
-  float pid_limit = motor_config::PID_LIMIT;
+  float pid_velocity_limit = motor_config::PID_VELOCITY_LIMIT;
   float lpf_tf = motor_config::LPF_TF;
+  float output_ramp = motor_config::OUTPUT_RAMP;
+  float motion_downsample = motor_config::MOTION_DOWNSAMPLE;
   SensorCalibrationData calibration{};
 };
 

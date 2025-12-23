@@ -53,7 +53,10 @@ static bool perform_sensor_calibration() {
   SensorCalibrationData data{};
   data.lut_size = motor_config::CAL_LUT_SIZE;
 
-  // Ensure driver is enabled for calibration moves.
+  //store previous motion control mode
+  MotionControlType prev_control = g_motor->controller;
+  // Ensure driver is enabled for calibration moves and set to torque mode
+  g_motor->controller = MotionControlType::torque;
   g_driver->enable();
   bool ok = calibrate_sensor(*g_raw_sensor, *g_motor, data);
   if (!ok) {
@@ -61,6 +64,8 @@ static bool perform_sensor_calibration() {
     control_loop_enabled = true;
     return false;
   }
+  //restore previous motion control mode
+  g_motor->controller = prev_control;
 
   set_calibration_data(data);
   bool saved = save_settings_to_flash(*g_motor, *g_driver);

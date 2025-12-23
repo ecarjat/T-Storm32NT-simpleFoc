@@ -107,9 +107,6 @@ void setup() {
   init_uart_dma(UART_BAUD);
   const bool settings_loaded = load_settings_from_flash();
   bool calibration_loaded = false;
-  if (settings_loaded) {
-  } else {
-  }
 
   // 2) Configuration: use encoder or force open-loop based on board setting.
   const bool use_encoder = BOARD_USE_ENCODER;
@@ -129,6 +126,7 @@ void setup() {
     } else {
       active_sensor = &encoder_sensor;
     }
+    active_sensor->min_elapsed_time = 0.00500;  // 200 Hz update rate
   }
 
   // 4) Configure driver + motor objects and run FOC alignment.
@@ -244,7 +242,6 @@ static void setup_driver_and_motor(bool use_encoder, Sensor* sensor) {
   motor.voltage_sensor_align = 3;
   // jerk control using voltage voltage ramp
   // default value is 300 volts per sec  ~ 0.3V per millisecond
-  motor.PID_velocity.output_ramp = 1000;
 
   // angle P controller -  default P=20
   motor.P_angle.P = 20;
@@ -253,6 +250,8 @@ static void setup_driver_and_motor(bool use_encoder, Sensor* sensor) {
   if (use_encoder) {
     motor.initFOC();
   }
+  // motot init resets PID_velocity.limit, re-apply it
+  motor.PID_velocity.limit = runtime_settings().pid_velocity_limit;
   motor.target = 0.0f;
   motor.disable();
 }
