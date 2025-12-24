@@ -15,20 +15,33 @@ struct SensorCalibrationData {
 
 // Runtime-settings container for parameters we want to persist across resets.
 struct RuntimeSettings {
+  float motor_voltage_limit = motor_config::MOTOR_VOLTAGE_LIMIT;
+  float motor_current_limit = motor_config::MOTOR_CURRENT_LIMIT;
+  float velocity_limit = motor_config::VELOCITY_LIMIT;
+  float driver_voltage_limit = motor_config::DRIVER_VOLTAGE_LIMIT;
   int pole_pairs = motor_config::POLE_PAIRS;
   float phase_resistance = motor_config::PHASE_RESISTANCE;
   float kv_rating = motor_config::KV_RATING;
   float supply_voltage = motor_config::SUPPLY_VOLTAGE;
-  float driver_voltage_limit = motor_config::DRIVER_VOLTAGE_LIMIT;
-  float motor_voltage_limit = motor_config::MOTOR_VOLTAGE_LIMIT;
-  float velocity_limit = motor_config::VELOCITY_LIMIT;
-  float pid_p = motor_config::PID_P;
-  float pid_i = motor_config::PID_I;
-  float pid_d = motor_config::PID_D;
-  float pid_velocity_limit = motor_config::PID_VELOCITY_LIMIT;
-  float lpf_tf = motor_config::LPF_TF;
-  float output_ramp = motor_config::OUTPUT_RAMP;
   float motion_downsample = motor_config::MOTION_DOWNSAMPLE;
+  
+  // Velocity PID parameters
+  float v_pid_p = motor_config::V_PID_P;
+  float v_pid_i = motor_config::V_PID_I;
+  float v_pid_d = motor_config::V_PID_D;
+  float v_pid_velocity_limit = motor_config::V_PID_VELOCITY_LIMIT;
+  float v_lpf_tf = motor_config::V_LPF_TF;
+  float v_output_ramp = motor_config::V_OUTPUT_RAMP;
+
+  // Angle PID parameters
+  float a_pid_p = motor_config::A_PID_P;
+  float a_pid_i = motor_config::A_PID_I;
+  float a_pid_d = motor_config::A_PID_D;
+  float a_pid_output_limit = motor_config::A_PID_OUTPUT_LIMIT;
+  float a_lpf_tf = motor_config::A_LPF_TF;
+  float a_output_ramp = motor_config::A_OUTPUT_RAMP;
+
+
   SensorCalibrationData calibration{};
 };
 

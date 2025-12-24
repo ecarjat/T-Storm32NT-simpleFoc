@@ -240,19 +240,16 @@ static void setup_driver_and_motor(bool use_encoder, Sensor* sensor) {
 
   motor.controller = MotionControlType::velocity;
   motor.foc_modulation = FOCModulationType::SpaceVectorPWM;
-  motor.voltage_sensor_align = 3;
+  motor.voltage_sensor_align = DEF_VOLTAGE_SENSOR_ALIGN;
   // jerk control using voltage voltage ramp
   // default value is 300 volts per sec  ~ 0.3V per millisecond
-
-  // angle P controller -  default P=20
-  motor.P_angle.P = 20;
 
   motor.init();
   if (use_encoder) {
     motor.initFOC();
   }
   // motot init resets PID_velocity.limit, re-apply it
-  motor.PID_velocity.limit = runtime_settings().pid_velocity_limit;
+  motor.PID_velocity.limit = runtime_settings().v_pid_velocity_limit;
   motor.target = 0.0f;
   motor.disable();
 }
