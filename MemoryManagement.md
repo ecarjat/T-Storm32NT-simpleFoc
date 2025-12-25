@@ -13,25 +13,45 @@
 
 ```
 ┌─────────────────────────────────────┐ 0x08000000
-│    BOOTLOADER (8 KB)                │
-│    0x08000000 - 0x08001FFF          │
-├─────────────────────────────────────┤ 0x08002000
+│    BOOTLOADER (6 KB)                │
+│    0x08000000 - 0x080017FF          │
+├─────────────────────────────────────┤ 0x08001800
 │                                     │
-│    APPLICATION FIRMWARE (54 KB)     │
-│    0x08002000 - 0x0800F7FF          │
+│    APPLICATION FIRMWARE (55 KB)     │
+│    0x08001800 - 0x0800F3FF          │
 │                                     │
 │    - Vector table (VECT_TAB_OFFSET) │
 │    - Code (.text)                   │
 │    - Read-only data (.rodata)       │
 │    - Initialized data (.data)       │
 │                                     │
-├─────────────────────────────────────┤ 0x0800F800
-│    PERSISTED SETTINGS (2 KB)        │
-│    0x0800F800 - 0x0800FFFF          │
+├─────────────────────────────────────┤ 0x0800F400
+│    PERSISTED SETTINGS (3 KB)        │
+│    0x0800F400 - 0x0800FFFF          │
 │    - EEPROM emulation               │
 │    - CRC32 protected                │
 └─────────────────────────────────────┘ 0x08010000
 ```
+
+---
+
+## Configuration - Single Source of Truth
+
+The application start address is defined in `platformio.ini`:
+
+```ini
+-D APP_START_ADDR=0x08001800
+```
+
+This value is used by:
+- **Bootloader** (`bootloader/src/flash.h`) - derives flash addresses from `APP_START_ADDR`
+- **Linker script** (`ldscripts/app_offset.ld`) - sets `FLASH ORIGIN` for application
+- **Application** (`platformio.ini`) - sets `VECT_TAB_OFFSET=0x1800` for vector table relocation
+
+To change the memory layout, update these locations:
+1. `APP_START_ADDR` in platformio.ini (bootloader environments)
+2. `VECT_TAB_OFFSET` in platformio.ini (app environments)
+3. `FLASH ORIGIN` and `LENGTH` in `ldscripts/app_offset.ld`
 
 ---
 
@@ -41,11 +61,11 @@
 
 This is enforced in two ways:
 
-1. **Linker script** (`ldscripts/app_offset.ld`) explicitly limits flash to `0x0000D800` (54 KB), stopping before `0x0800F800`
+1. **Linker script** (`ldscripts/app_offset.ld`) explicitly limits flash to `0x0000DC00` (55 KB), stopping before `0x0800F400`
 
 2. **Settings code** (`src/motor_config.h`) defines:
    ```cpp
-   constexpr uint32_t SETTINGS_ADDR = 0x0800F800UL;
+   constexpr uint32_t SETTINGS_ADDR = 0x0800F400UL;
    ```
 
 This design allows:
@@ -62,13 +82,21 @@ From `src/runtime_settings.h`:
 ```cpp
 struct PersistedSettings {
     uint32_t magic;        // 0x53544631 ("STF1")
-    uint32_t version;      // Currently 6
+    uint32_t version;      // Currently 7
     RuntimeSettings data;  // Motor params, PID, calibration LUT
     uint32_t crc;          // CRC32 integrity check
 };
+
+struct SensorCalibrationData {
+    bool valid;
+    uint16_t lut_size;              // 1024 entries
+    float zero_electric_angle;
+    int32_t direction;
+    int16_t lut_counts[1024];       // Offset in counts (int16_t)
+};
 ```
 
-The largest component is `SensorCalibrationData` with a 220-entry float LUT (~880 bytes). A compile-time assertion ensures the total fits in 2 KB.
+The largest component is `SensorCalibrationData` with a 1024-entry int16_t LUT (~2048 bytes). A compile-time assertion ensures the total fits in 3 KB.
 
 ---
 
@@ -92,6 +120,6 @@ The largest component is `SensorCalibrationData` with a 220-entry float LUT (~88
 
 | Region | Start | End | Size | Part of Firmware? |
 |--------|-------|-----|------|-------------------|
-| Bootloader | `0x08000000` | `0x08001FFF` | 8 KB | No (separate binary) |
-| Application | `0x08002000` | `0x0800F7FF` | 54 KB | Yes |
-| Settings | `0x0800F800` | `0x0800FFFF` | 2 KB | **No (separate sector)** |
+| Bootloader | `0x08000000` | `0x080017FF` | 6 KB | No (separate binary) |
+| Application | `0x08001800` | `0x0800F3FF` | 55 KB | Yes |
+| Settings | `0x0800F400` | `0x0800FFFF` | 3 KB | **No (separate sector)** |

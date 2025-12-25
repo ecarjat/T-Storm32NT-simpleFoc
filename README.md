@@ -36,7 +36,7 @@ pio run -e tstorm32_bootloader
   ```
 - **App via STLink:**
   ```bash
-  python flash/flash_firmware.py --stlink --bin .pio/build/tstorm32_simplefoc/firmware.bin --addr 0x08002000
+  python flash/flash_firmware.py --stlink --bin .pio/build/tstorm32_simplefoc/firmware.bin --addr 0x08001800
   ```
 - **App via UART bootloader (bootloader must already be installed):**
   ```bash

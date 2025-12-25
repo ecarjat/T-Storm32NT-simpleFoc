@@ -5,12 +5,14 @@
 #include "motor_config.h"
 
 // Persistent calibration payload (stored in flash).
+// LUT stores correction offsets in COUNTS (int16_t), not radians.
+// To apply: corrected_counts = wrapCounts(raw_counts - lut[idx])
 struct SensorCalibrationData {
   bool valid = false;
-  uint16_t lut_size = motor_config::CAL_LUT_SIZE;
+  uint16_t lut_size = motor_config::CAL_LUT_SIZE;  // Should be 1024
   float zero_electric_angle = 0.0f;
   int32_t direction = static_cast<int32_t>(Direction::CW);
-  float lut[motor_config::CAL_LUT_SIZE] = {};
+  int16_t lut_counts[motor_config::CAL_LUT_SIZE] = {};  // Offset in counts (int16_t)
 };
 
 // Runtime-settings container for parameters we want to persist across resets.

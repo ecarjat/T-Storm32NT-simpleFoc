@@ -30,7 +30,7 @@ struct PersistedSettings {
 
 // Compile-time size check so we know the flash pages still fit the struct.
 static constexpr size_t PERSISTED_SETTINGS_SIZE = sizeof(PersistedSettings);
-static_assert(PERSISTED_SETTINGS_SIZE <= 2048, "Persisted settings exceed reserved 2KB flash pages");
+static_assert(PERSISTED_SETTINGS_SIZE <= 3072, "Persisted settings exceed reserved 3KB flash pages");
 
 static PersistedSettings* flash_ptr() {
   return reinterpret_cast<PersistedSettings*>(SETTINGS_ADDR);
@@ -119,7 +119,7 @@ bool save_settings_to_flash(const BLDCMotor& motor, const BLDCDriver3PWM& driver
   blob.data = s;
   blob.crc = crc32_calc(reinterpret_cast<const uint8_t*>(&blob.data), sizeof(RuntimeSettings));
 
-  if (!flash_erase_pages(SETTINGS_ADDR, 2)) {
+  if (!flash_erase_pages(SETTINGS_ADDR, 3)) {
     return false;
   }
   return flash_write_bytes(SETTINGS_ADDR, reinterpret_cast<const uint8_t*>(&blob), sizeof(blob));

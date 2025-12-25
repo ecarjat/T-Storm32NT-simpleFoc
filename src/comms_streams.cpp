@@ -77,9 +77,10 @@ static bool perform_sensor_calibration() {
   g_motor->initFOC();
 
   // Dump LUT entries via log packets for host capture.
+  // LUT is now stored as int16_t counts, not float radians.
   char msg[60] = {0};
   for (uint16_t i = 0; i < data.lut_size; i++) {
-    snprintf(msg, sizeof(msg), "LUT[%u]=%.6f", static_cast<unsigned>(i), data.lut[i]);
+    snprintf(msg, sizeof(msg), "LUT[%u]=%d", static_cast<unsigned>(i), static_cast<int>(data.lut_counts[i]));
     log_packet(LOG_INFO, "CAL", msg);
   }
   snprintf(msg, sizeof(msg), "ZERO=%.6f", data.zero_electric_angle);

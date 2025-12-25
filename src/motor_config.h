@@ -1,20 +1,43 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
-// Reserve the last 2KB flash pages (64KB device) for settings.
-// Bootloader is at 0x08000000-0x08001FFF, app starts at 0x08002000, app size ~54KB,
-// so 0x0800F800 should remain unused by app/bootloader.
-constexpr uint32_t SETTINGS_ADDR = 0x0800F800UL;
+// Reserve the last 3KB flash pages (64KB device) for settings.
+// Bootloader is at 0x08000000-0x080017FF (6KB), app starts at 0x08001800, app size ~55KB,
+// so 0x0800F400 should remain unused by app/bootloader.
+constexpr uint32_t SETTINGS_ADDR = 0x0800F400UL;
 constexpr uint32_t SETTINGS_MAGIC = 0x53544631; // "STF1"
-constexpr uint32_t SETTINGS_VERSION = 6;
+constexpr uint32_t SETTINGS_VERSION = 7; // Bumped for new LUT format
 
 // Motor and driver configuration placeholders.
 // Tune these values when the target motor is known.
 namespace motor_config {
 
-// Calibration lookup table sizing
-constexpr size_t CAL_LUT_SIZE = 220; // number of points in the calibration lookup table
+// Sensor configuration (TLE5012B)
+constexpr int32_t CPR = 32768;              // Counts per revolution for TLE5012B
+
+// Calibration lookup table sizing (power of two for efficient index calculation)
+// 1024 entries @ 2 bytes = 2048 bytes, requires 3KB flash for settings
+constexpr size_t CAL_LUT_SIZE = 1024;       // LUT entries (power of two)
+constexpr int32_t CAL_BIN_COUNTS = CPR / CAL_LUT_SIZE;  // Counts per LUT bin (32)
+
+// Calibration process parameters
+constexpr int CAL_N_POS = 5;                // Samples per electrical cycle
+constexpr int CAL_N2_TICKS = 5;             // Microsteps between samples (smoothing)
+constexpr int CAL_SETTLE_TIME_MS = 30;      // Settle delay per tick (ms)
+constexpr float CAL_VOLTAGE = 3.0f;         // Calibration voltage (V)
+constexpr int CAL_N_SAMPLES_PER_TICK = 10;  // Samples to average per tick position
+constexpr int CAL_SAMPLE_DELAY_MS = 1;      // Delay between samples (ms)
+
+// Multi-pass calibration parameters
+constexpr int CAL_MAX_PASS_PAIRS = 3;       // Max forward+backward pass pairs (3F+3B = 6 total)
+constexpr float CAL_STOP_RMS_COUNTS = 1.0f; // RMS threshold for early stop (counts)
+constexpr float CAL_STOP_MAX_COUNTS = 3.0f; // Max diff threshold for early stop (counts)
+constexpr int CAL_STOP_CONSECUTIVE = 2;     // Consecutive passes below threshold to stop
+
+// Output precision reduction (post-LUT)
+constexpr int CAL_DROP_BITS = 0;            // LSBs to drop from corrected counts (0/1/2)
 
 // Driver parameters
 constexpr unsigned long DRIVER_PWM_FREQUENCY = 25000; // Hz, adjust per DRV8313/efficiency

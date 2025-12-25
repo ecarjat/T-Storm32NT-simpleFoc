@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(~/.platformio/penv/bin/pio run:*)",
+      "Bash(~/.platformio/packages/toolchain-gccarmnoneeabi@1.90201.191206/bin/arm-none-eabi-size:*)",
+      "Bash(git stash:*)",
+      "Bash(find:*)",
+      "Bash(sort:*)",
+      "Bash(~/.platformio/packages/toolchain-gccarmnoneeabi@1.90201.191206/bin/arm-none-eabi-nm:*)"
+    ]
+  }
+}
