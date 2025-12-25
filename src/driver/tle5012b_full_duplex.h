@@ -78,6 +78,8 @@ class TLE5012BFullDuplex : public Sensor {
   int _ncs;
   uint32_t _freq;
   SPI_HandleTypeDef _spi;
+  GPIO_TypeDef* _ncs_port = nullptr;  // Cached for fast CS toggle
+  uint16_t _ncs_pin = 0;              // Cached pin mask
   uint16_t _safetyWord = 0;
   uint16_t _lastValidAngle = 0;  // Last successfully read angle (for fallback)
 };

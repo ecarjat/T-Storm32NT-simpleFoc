@@ -30,6 +30,10 @@ TLE5012BFullDuplex::TLE5012BFullDuplex(int mosi, int miso, int sck, int ncs, uin
     : _mosi(mosi), _miso(miso), _sck(sck), _ncs(ncs), _freq(freq_hz) {}
 
 void TLE5012BFullDuplex::init() {
+  // Cache GPIO port/pin for fast CS toggle
+  _ncs_port = digitalPinToPort(_ncs);
+  _ncs_pin = digitalPinToBitMask(_ncs);
+
   pinMode(_ncs, OUTPUT);
   digitalWrite(_ncs, HIGH);
 
@@ -153,7 +157,8 @@ float TLE5012BFullDuplex::getSensorAngle() {
 }
 
 uint16_t TLE5012BFullDuplex::readBytes(uint16_t reg, uint8_t* data, uint8_t len) {
-  digitalWrite(_ncs, LOW);
+  // Fast CS low via direct register access
+  _ncs_port->BSRR = static_cast<uint32_t>(_ncs_pin) << 16;
 
   uint16_t cmdWord = reg | TLE5012B_READ_REGISTER | (len >> 1);
   uint8_t txbuffer[2] = {static_cast<uint8_t>(cmdWord >> 8), static_cast<uint8_t>(cmdWord & 0x00FF)};
@@ -166,7 +171,8 @@ uint16_t TLE5012BFullDuplex::readBytes(uint16_t reg, uint8_t* data, uint8_t len)
   }
   HAL_SPI_TransmitReceive(&_spi, dummy, data, len + 2, tle5012b::SPI_TIMEOUT_MS);
 
-  digitalWrite(_ncs, HIGH);
+  // Fast CS high via direct register access
+  _ncs_port->BSRR = _ncs_pin;
   return cmdWord;
 }
 
@@ -202,7 +208,10 @@ errorTypes TLE5012BFullDuplex::checkSafety(uint16_t safety, uint16_t cmdWord, co
     errorCheck = INTERFACE_ACCESS_ERROR;
   } else if (!(safety & INV_ANGLE_ERROR_MASK)) {
     errorCheck = INVALID_ANGLE_ERROR;
-  } else {
+  }
+
+  // Reset safety status on error to allow sensor recovery
+  if (errorCheck != NO_ERROR) {
     resetSafety();
   }
   return errorCheck;

@@ -8,7 +8,7 @@
 // so 0x0800F400 should remain unused by app/bootloader.
 constexpr uint32_t SETTINGS_ADDR = 0x0800F400UL;
 constexpr uint32_t SETTINGS_MAGIC = 0x53544631; // "STF1"
-constexpr uint32_t SETTINGS_VERSION = 7; // Bumped for new LUT format
+constexpr uint32_t SETTINGS_VERSION = 8; // Bumped for new LUT format
 
 // Motor and driver configuration placeholders.
 // Tune these values when the target motor is known.

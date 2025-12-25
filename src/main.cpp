@@ -39,7 +39,7 @@ constexpr const char* APP_VERSION = "app_v1.1.0";
 // SimpleFOC objects
 BLDCMotor motor(motor_config::POLE_PAIRS);
 BLDCDriver3PWM driver(PHASE_U_PIN, PHASE_V_PIN, PHASE_W_PIN);
-TLE5012BFullDuplex encoder_sensor(ENC_MOSI_PIN, ENC_MISO_PIN, ENC_SCK_PIN, ENC_CS_PIN);
+TLE5012BFullDuplex encoder_sensor(ENC_MOSI_PIN, ENC_MISO_PIN, ENC_SCK_PIN, ENC_CS_PIN, 4000000);
 StoredCalibratedSensor calibrated_sensor(encoder_sensor);
 static bool system_running = false;
 
