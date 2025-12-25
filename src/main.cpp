@@ -149,7 +149,6 @@ void setup() {
   controlTimer.attachInterrupt(control_timer_isr);
   // start the timer
   controlTimer.resume();
-  status_led_set_running(true);
   _delay(1000);
 
   system_running = true;
@@ -159,9 +158,12 @@ static void control_timer_isr() {
   if (!control_loop_enabled) {
     return;
   }
-  digitalWrite(STATUS_LED_PIN, HIGH);
+  // Keep LED on unless pulsing (error indication)
+  if (!status_led_is_pulsing()) {
+    digitalWrite(STATUS_LED_PIN, HIGH);
+  }
   if (control_isr_active) {
-    status_led_pulse_isr();
+    status_led_pulse();  // Mark overrun
     return;
   }
   control_isr_active = true;
@@ -199,7 +201,6 @@ static void log_timer() {
 }
 
 void loop() {
-  digitalWrite(STATUS_LED_PIN, LOW);
   const uint32_t now = micros();
   if (loop_last_ts != 0) {
     const uint32_t delta = now - loop_last_ts;
@@ -214,7 +215,6 @@ void loop() {
       snprintf(msg, sizeof(msg), "HZ=%lu MAX=%lu", static_cast<unsigned long>(hz),
                static_cast<unsigned long>(loop_max_us));
       log_packet(LOG_INFO, "LOOP", msg);
-      encoder_sensor.logStatusBits(); 
       loop_total_us = 0;
       loop_samples = 0;
       loop_max_us = 0;
@@ -225,8 +225,9 @@ void loop() {
     log_timer();
   }
   handle_streams(motor);
-  digitalWrite(STATUS_LED_PIN, HIGH);
-  // status_led_tick();
+
+  // LED: OFF during error pulse, ON otherwise
+  digitalWrite(STATUS_LED_PIN, status_led_is_pulsing() ? LOW : HIGH);
 }
 
 static void setup_driver_and_motor(bool use_encoder, Sensor* sensor) {

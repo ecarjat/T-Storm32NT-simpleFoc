@@ -26,21 +26,6 @@ constexpr uint16_t INV_ANGLE_ERROR_MASK = 0x1000;
 // Angle data masks
 constexpr uint16_t DELETE_BIT_15 = 0x7FFF;
 
-// STAT bit masks (from vendor bitFields table)
-constexpr uint16_t STAT_SRST = (1u << 0);
-constexpr uint16_t STAT_SWD = (1u << 1);
-constexpr uint16_t STAT_SVR = (1u << 2);
-constexpr uint16_t STAT_SFUSE = (1u << 3);
-constexpr uint16_t STAT_SDSPU = (1u << 4);
-constexpr uint16_t STAT_SOV = (1u << 5);
-constexpr uint16_t STAT_SXYOL = (1u << 6);
-constexpr uint16_t STAT_SMAGOL = (1u << 7);
-constexpr uint16_t STAT_SADCT = (1u << 9);
-constexpr uint16_t STAT_SROM = (1u << 10);
-constexpr uint16_t STAT_NOGMRXY = (1u << 11);
-constexpr uint16_t STAT_NOGMRA = (1u << 12);
-constexpr uint16_t STAT_RDST = (1u << 15);
-
 TLE5012BFullDuplex::TLE5012BFullDuplex(int mosi, int miso, int sck, int ncs, uint32_t freq_hz)
     : _mosi(mosi), _miso(miso), _sck(sck), _ncs(ncs), _freq(freq_hz) {}
 
@@ -140,12 +125,12 @@ void TLE5012BFullDuplex::init() {
 AngleReadResult TLE5012BFullDuplex::readRawAngleChecked() {
   uint8_t data[4] = {0};
   // Request 1 data word + safety word using REG_AVAL register
-  readBytes(REG_AVAL | TLE5012B_SAFE_BIT, data, 2);
+  uint16_t cmdWord = readBytes(REG_AVAL | TLE5012B_SAFE_BIT, data, 2);
 
   uint16_t angle = (((uint16_t)data[0] << 8) | data[1]) & DELETE_BIT_15;
   const uint16_t safety = ((uint16_t)data[2] << 8) | data[3];
 
-  if (checkSafety(safety) != NO_ERROR) {
+  if (checkSafety(safety, cmdWord, data, 4) != NO_ERROR) {
     status_led_pulse();
     return {_lastValidAngle, false};
   }
@@ -167,48 +152,11 @@ float TLE5012BFullDuplex::getSensorAngle() {
   return fmodf(getCurrentAngle(), _2PI);
 }
 
-bool TLE5012BFullDuplex::readStatus(uint16_t& stat_out) {
-  uint8_t data[4] = {0};
-  readBytes(REG_STAT | TLE5012B_SAFE_BIT, data, 2);
-  uint16_t stat = ((uint16_t)data[0] << 8) | data[1];
-  const uint16_t safety = ((uint16_t)data[2] << 8) | data[3];
-  if (checkSafety(safety) != NO_ERROR) {
-    return false;
-  }
-  _stat = stat;
-  stat_out = stat;
-  return true;
-}
-
-void TLE5012BFullDuplex::logStatusBits() {
-  if (_stat == tle5012b::STAT_UNREAD) {
-    return;  // Status has never been read
-  }
-  char msg[96] = {0};
-  // Collect set flags.
-  const uint16_t snr = (_stat >> 13) & 0x3;
-  snprintf(msg, sizeof(msg), "STAT=0x%04X SNR=%u%s%s%s%s%s%s%s%s%s%s%s%s",
-           static_cast<unsigned>(_stat), static_cast<unsigned>(snr),
-           (_stat & STAT_SRST) ? " SRST" : "", (_stat & STAT_SWD) ? " SWD" : "",
-           (_stat & STAT_SVR) ? " SVR" : "", (_stat & STAT_SFUSE) ? " SFUSE" : "",
-           (_stat & STAT_SDSPU) ? " SDSPU" : "", (_stat & STAT_SOV) ? " SOV" : "",
-           (_stat & STAT_SXYOL) ? " SXYOL" : "", (_stat & STAT_SMAGOL) ? " SMAGOL" : "",
-           (_stat & STAT_SADCT) ? " SADCT" : "", (_stat & STAT_SROM) ? " SROM" : "",
-           (_stat & STAT_NOGMRXY) ? " NOGMRXY" : "", (_stat & STAT_NOGMRA) ? " NOGMRA" : "",
-           (_stat & STAT_RDST) ? " RDST" : "");
-  log_packet(LOG_INFO, "TLE5012B", msg);
-  snprintf(msg, sizeof(msg), "SAFETY=0x%04X, S:%u, I: %u, A: %u", static_cast<unsigned>(_safetyWord), 
-           static_cast<unsigned>((_safetyWord & SYSTEM_ERROR_MASK) ? 1 : 0),
-           static_cast<unsigned>((_safetyWord & INTERFACE_ERROR_MASK) ? 1 : 0),
-           static_cast<unsigned>((_safetyWord & INV_ANGLE_ERROR_MASK) ? 1 : 0));
-  log_packet(LOG_INFO, "TLE5012B", msg);
-}
-
-void TLE5012BFullDuplex::readBytes(uint16_t reg, uint8_t* data, uint8_t len) {
+uint16_t TLE5012BFullDuplex::readBytes(uint16_t reg, uint8_t* data, uint8_t len) {
   digitalWrite(_ncs, LOW);
 
-  reg |= TLE5012B_READ_REGISTER + (len >> 1);
-  uint8_t txbuffer[2] = {static_cast<uint8_t>(reg >> 8), static_cast<uint8_t>(reg & 0x00FF)};
+  uint16_t cmdWord = reg | TLE5012B_READ_REGISTER | (len >> 1);
+  uint8_t txbuffer[2] = {static_cast<uint8_t>(cmdWord >> 8), static_cast<uint8_t>(cmdWord & 0x00FF)};
   uint8_t dummy[2] = {0, 0};
   HAL_SPI_TransmitReceive(&_spi, txbuffer, dummy, 2, tle5012b::SPI_TIMEOUT_MS);
 
@@ -219,30 +167,45 @@ void TLE5012BFullDuplex::readBytes(uint16_t reg, uint8_t* data, uint8_t len) {
   HAL_SPI_TransmitReceive(&_spi, dummy, data, len + 2, tle5012b::SPI_TIMEOUT_MS);
 
   digitalWrite(_ncs, HIGH);
+  return cmdWord;
 }
 
 
 
-errorTypes TLE5012BFullDuplex::checkSafety(uint16_t safety)
-{
-    errorTypes errorCheck = NO_ERROR;
-    _safetyWord = safety;
-    if (!((safety) & SYSTEM_ERROR_MASK))
-    {
-        errorCheck = SYSTEM_ERROR;
-        // resetSafety();
-    } else if (!((safety) & INTERFACE_ERROR_MASK))
-    {
-        errorCheck = INTERFACE_ACCESS_ERROR;
-        // resetSafety();
-    } else if (!((safety) & INV_ANGLE_ERROR_MASK))
-    {
-        errorCheck = INVALID_ANGLE_ERROR;
-        // resetSafety();
-    }else{
-        resetSafety();
-    }
-    return (errorCheck);
+bool TLE5012BFullDuplex::validateCrc(uint16_t cmdWord, const uint8_t* data, uint8_t len) {
+  // CRC is computed over: command word (2 bytes) + response data (len-1 bytes, excluding CRC byte)
+  // The last byte of data is the received CRC
+  uint8_t crcBuffer[6];  // Max: 2 cmd + 4 data bytes (for 2-word reads)
+  crcBuffer[0] = static_cast<uint8_t>(cmdWord >> 8);
+  crcBuffer[1] = static_cast<uint8_t>(cmdWord & 0xFF);
+  for (uint8_t i = 0; i < len - 1; i++) {
+    crcBuffer[2 + i] = data[i];
+  }
+  uint8_t computed = crc8_calc(crcBuffer, 2 + len - 1);
+  uint8_t received = data[len - 1];
+  return computed == received;
+}
+
+errorTypes TLE5012BFullDuplex::checkSafety(uint16_t safety, uint16_t cmdWord, const uint8_t* data, uint8_t len) {
+  errorTypes errorCheck = NO_ERROR;
+  _safetyWord = safety;
+
+  // TODO: CRC validation disabled - needs proper implementation per TLE5012B datasheet
+  // The CRC is embedded in the safety word, not as a separate trailing byte
+  // if (!validateCrc(cmdWord, data, len)) {
+  //   return CRC_ERROR;
+  // }
+
+  if (!(safety & SYSTEM_ERROR_MASK)) {
+    errorCheck = SYSTEM_ERROR;
+  } else if (!(safety & INTERFACE_ERROR_MASK)) {
+    errorCheck = INTERFACE_ACCESS_ERROR;
+  } else if (!(safety & INV_ANGLE_ERROR_MASK)) {
+    errorCheck = INVALID_ANGLE_ERROR;
+  } else {
+    resetSafety();
+  }
+  return errorCheck;
 }
 
 void TLE5012BFullDuplex::resetSafety() {

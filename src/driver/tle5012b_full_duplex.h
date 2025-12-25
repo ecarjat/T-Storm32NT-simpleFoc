@@ -10,7 +10,6 @@ namespace tle5012b {
   constexpr float CPR = 32768.0f;                 // Counts per revolution (15-bit)
   constexpr int TWR_DELAY_NOPS = 15;              // ~130ns delay at 72MHz after direction change
   constexpr uint32_t SPI_TIMEOUT_MS = 10;         // SPI transaction timeout
-  constexpr uint16_t STAT_UNREAD = 0xFFFF;        // Sentinel for unread status
 }
 
 enum errorTypes {
@@ -45,10 +44,6 @@ class TLE5012BFullDuplex : public Sensor {
   uint16_t readRawAngle();
   float getCurrentAngle();  // radians
 
-  // Read STAT register with safety/CRC; returns true on success.
-  bool readStatus(uint16_t& stat_out);
-  // Log set bits of STAT via log_packet (uses last read status).
-  void logStatusBits();
 
  protected:
   float getSensorAngle() override;  // wrapped 0..2PI
@@ -57,8 +52,9 @@ class TLE5012BFullDuplex : public Sensor {
   /**
    * @brief Error types from safety word
    */
-  void readBytes(uint16_t reg, uint8_t* data, uint8_t len);
-  errorTypes checkSafety(uint16_t safety);
+  uint16_t readBytes(uint16_t reg, uint8_t* data, uint8_t len);
+  bool validateCrc(uint16_t cmdWord, const uint8_t* data, uint8_t len);
+  errorTypes checkSafety(uint16_t safety, uint16_t cmdWord, const uint8_t* data, uint8_t len);
   void resetSafety();
   uint8_t crc8_calc(const uint8_t* data, uint8_t length);
 
@@ -82,7 +78,6 @@ class TLE5012BFullDuplex : public Sensor {
   int _ncs;
   uint32_t _freq;
   SPI_HandleTypeDef _spi;
-  uint16_t _stat = tle5012b::STAT_UNREAD;  // Last read status (STAT_UNREAD if never read)
   uint16_t _safetyWord = 0;
   uint16_t _lastValidAngle = 0;  // Last successfully read angle (for fallback)
 };

@@ -2,20 +2,16 @@
 
 #include <stdbool.h>
 
-// Initialize status LED GPIO (PA1) and internal state.
+// Initialize status LED GPIO (PA1).
 void status_led_init();
 
-// Update LED state; call frequently from the main loop.
-void status_led_tick();
-
-// Mark system running (solid ON when no pulses/boot).
-void status_led_set_running(bool running);
-
-// Mark critical init failure; keeps LED in continuous pulse mode.
+// Mark critical init failure (for future use).
 void status_led_set_critical_fault(bool active);
 
-// Trigger a short, non-blocking pulse.
+// Trigger a pulse - LED will show OFF for PULSE_DURATION_MS.
+// Non-blocking, just records timestamp.
 void status_led_pulse();
 
-// ISR-safe pulse request (handled on next tick).
-void status_led_pulse_isr();
+// Returns true if currently in a pulse window (LED should be OFF).
+// Call this from main loop to determine LED state.
+bool status_led_is_pulsing();
