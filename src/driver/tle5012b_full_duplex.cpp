@@ -178,17 +178,17 @@ uint16_t TLE5012BFullDuplex::readBytes(uint16_t reg, uint8_t* data, uint8_t len)
 
 
 
-bool TLE5012BFullDuplex::validateCrc(uint16_t cmdWord, const uint8_t* data, uint8_t len) {
-  // CRC is computed over: command word (2 bytes) + response data (len-1 bytes, excluding CRC byte)
-  // The last byte of data is the received CRC
+bool TLE5012BFullDuplex::validateCrc(uint16_t cmdWord, const uint8_t* data, uint8_t dataLen, uint16_t safety) {
+  // CRC is computed over: command word (2 bytes) + data words (dataLen bytes)
+  // CRC received is the lower 8 bits of the safety word
   uint8_t crcBuffer[6];  // Max: 2 cmd + 4 data bytes (for 2-word reads)
   crcBuffer[0] = static_cast<uint8_t>(cmdWord >> 8);
   crcBuffer[1] = static_cast<uint8_t>(cmdWord & 0xFF);
-  for (uint8_t i = 0; i < len - 1; i++) {
+  for (uint8_t i = 0; i < dataLen; i++) {
     crcBuffer[2 + i] = data[i];
   }
-  uint8_t computed = crc8_calc(crcBuffer, 2 + len - 1);
-  uint8_t received = data[len - 1];
+  uint8_t computed = crc8_calc(crcBuffer, 2 + dataLen);
+  uint8_t received = static_cast<uint8_t>(safety & 0xFF);  // CRC is in lower byte of safety word
   return computed == received;
 }
 
@@ -196,18 +196,21 @@ errorTypes TLE5012BFullDuplex::checkSafety(uint16_t safety, uint16_t cmdWord, co
   errorTypes errorCheck = NO_ERROR;
   _safetyWord = safety;
 
-  // TODO: CRC validation disabled - needs proper implementation per TLE5012B datasheet
-  // The CRC is embedded in the safety word, not as a separate trailing byte
-  // if (!validateCrc(cmdWord, data, len)) {
-  //   return CRC_ERROR;
-  // }
-
+  // Check status error bits first (per vendor implementation)
   if (!(safety & SYSTEM_ERROR_MASK)) {
     errorCheck = SYSTEM_ERROR;
   } else if (!(safety & INTERFACE_ERROR_MASK)) {
     errorCheck = INTERFACE_ACCESS_ERROR;
   } else if (!(safety & INV_ANGLE_ERROR_MASK)) {
     errorCheck = INVALID_ANGLE_ERROR;
+  } else {
+    // No status errors - validate CRC (len is data bytes, not including safety word)
+    // data[] contains: angle word (2 bytes) + safety word (2 bytes)
+    // CRC is computed over: cmd (2) + angle data (2) = 4 bytes
+    // len parameter is 4 (total data read), but we only CRC the angle data (2 bytes)
+    if (!validateCrc(cmdWord, data, 2, safety)) {
+      errorCheck = CRC_ERROR;
+    }
   }
 
   // Reset safety status on error to allow sensor recovery

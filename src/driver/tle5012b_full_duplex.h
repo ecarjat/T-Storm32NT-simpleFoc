@@ -53,7 +53,7 @@ class TLE5012BFullDuplex : public Sensor {
    * @brief Error types from safety word
    */
   uint16_t readBytes(uint16_t reg, uint8_t* data, uint8_t len);
-  bool validateCrc(uint16_t cmdWord, const uint8_t* data, uint8_t len);
+  bool validateCrc(uint16_t cmdWord, const uint8_t* data, uint8_t dataLen, uint16_t safety);
   errorTypes checkSafety(uint16_t safety, uint16_t cmdWord, const uint8_t* data, uint8_t len);
   void resetSafety();
   uint8_t crc8_calc(const uint8_t* data, uint8_t length);
