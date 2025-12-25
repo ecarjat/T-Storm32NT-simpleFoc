@@ -7,50 +7,58 @@
 // Persistent calibration payload (stored in flash).
 // LUT stores correction offsets in COUNTS (int16_t), not radians.
 // To apply: corrected_counts = wrapCounts(raw_counts - lut[idx])
+// NOTE: No default initializers to keep struct in .bss (not .data), saving ~2KB flash.
 struct SensorCalibrationData {
-  bool valid = false;
-  uint16_t lut_size = motor_config::CAL_LUT_SIZE;  // Should be 1024
-  float zero_electric_angle = 0.0f;
-  int32_t direction = static_cast<int32_t>(Direction::CW);
-  int16_t lut_counts[motor_config::CAL_LUT_SIZE] = {};  // Offset in counts (int16_t)
+  bool valid;
+  uint16_t lut_size;
+  float zero_electric_angle;
+  int32_t direction;
+  int16_t lut_counts[motor_config::CAL_LUT_SIZE];
 };
 
 // Runtime-settings container for parameters we want to persist across resets.
+// NOTE: No default initializers - use init_defaults() to set values.
+// This keeps the struct in .bss instead of .data, saving ~2KB flash.
 struct RuntimeSettings {
-  float motor_voltage_limit = motor_config::MOTOR_VOLTAGE_LIMIT;
-  float motor_current_limit = motor_config::MOTOR_CURRENT_LIMIT;
-  float velocity_limit = motor_config::VELOCITY_LIMIT;
-  float driver_voltage_limit = motor_config::DRIVER_VOLTAGE_LIMIT;
-  int pole_pairs = motor_config::POLE_PAIRS;
-  float phase_resistance = motor_config::PHASE_RESISTANCE;
-  float kv_rating = motor_config::KV_RATING;
-  float supply_voltage = motor_config::SUPPLY_VOLTAGE;
-  float motion_downsample = motor_config::MOTION_DOWNSAMPLE;
-  
+  float motor_voltage_limit;
+  float motor_current_limit;
+  float velocity_limit;
+  float driver_voltage_limit;
+  int pole_pairs;
+  float phase_resistance;
+  float kv_rating;
+  float supply_voltage;
+  float motion_downsample;
+
   // Velocity PID parameters
-  float v_pid_p = motor_config::V_PID_P;
-  float v_pid_i = motor_config::V_PID_I;
-  float v_pid_d = motor_config::V_PID_D;
-  float v_pid_velocity_limit = motor_config::V_PID_VELOCITY_LIMIT;
-  float v_lpf_tf = motor_config::V_LPF_TF;
-  float v_output_ramp = motor_config::V_OUTPUT_RAMP;
+  float v_pid_p;
+  float v_pid_i;
+  float v_pid_d;
+  float v_pid_velocity_limit;
+  float v_lpf_tf;
+  float v_output_ramp;
 
   // Angle PID parameters
-  float a_pid_p = motor_config::A_PID_P;
-  float a_pid_i = motor_config::A_PID_I;
-  float a_pid_d = motor_config::A_PID_D;
-  float a_pid_output_limit = motor_config::A_PID_OUTPUT_LIMIT;
-  float a_lpf_tf = motor_config::A_LPF_TF;
-  float a_output_ramp = motor_config::A_OUTPUT_RAMP;
+  float a_pid_p;
+  float a_pid_i;
+  float a_pid_d;
+  float a_pid_output_limit;
+  float a_lpf_tf;
+  float a_output_ramp;
 
-
-  SensorCalibrationData calibration{};
+  SensorCalibrationData calibration;
 };
 
 // Accessor for the singleton runtime settings.
 RuntimeSettings &runtime_settings();
 
+// Initialize runtime_settings() with default values from motor_config.h.
+// Call this before load_settings_from_flash() or if flash load fails.
+void init_settings_defaults();
+
 // Load settings from flash (if present/valid) into the runtime_settings().
+// Returns true if valid settings were loaded, false otherwise.
+// If false, caller should call init_settings_defaults().
 bool load_settings_from_flash();
 
 // Capture current motor/driver values into runtime_settings() and persist to flash.

@@ -21,6 +21,44 @@ RuntimeSettings& runtime_settings() {
   return settings;
 }
 
+void init_settings_defaults() {
+  RuntimeSettings& s = runtime_settings();
+
+  // Core motor/driver parameters
+  s.motor_voltage_limit = motor_config::MOTOR_VOLTAGE_LIMIT;
+  s.motor_current_limit = motor_config::MOTOR_CURRENT_LIMIT;
+  s.velocity_limit = motor_config::VELOCITY_LIMIT;
+  s.driver_voltage_limit = motor_config::DRIVER_VOLTAGE_LIMIT;
+  s.pole_pairs = motor_config::POLE_PAIRS;
+  s.phase_resistance = motor_config::PHASE_RESISTANCE;
+  s.kv_rating = motor_config::KV_RATING;
+  s.supply_voltage = motor_config::SUPPLY_VOLTAGE;
+  s.motion_downsample = motor_config::MOTION_DOWNSAMPLE;
+
+  // Velocity PID parameters
+  s.v_pid_p = motor_config::V_PID_P;
+  s.v_pid_i = motor_config::V_PID_I;
+  s.v_pid_d = motor_config::V_PID_D;
+  s.v_pid_velocity_limit = motor_config::V_PID_VELOCITY_LIMIT;
+  s.v_lpf_tf = motor_config::V_LPF_TF;
+  s.v_output_ramp = motor_config::V_OUTPUT_RAMP;
+
+  // Angle PID parameters
+  s.a_pid_p = motor_config::A_PID_P;
+  s.a_pid_i = motor_config::A_PID_I;
+  s.a_pid_d = motor_config::A_PID_D;
+  s.a_pid_output_limit = motor_config::A_PID_OUTPUT_LIMIT;
+  s.a_lpf_tf = motor_config::A_LPF_TF;
+  s.a_output_ramp = motor_config::A_OUTPUT_RAMP;
+
+  // Calibration defaults
+  s.calibration.valid = false;
+  s.calibration.lut_size = motor_config::CAL_LUT_SIZE;
+  s.calibration.zero_electric_angle = 0.0f;
+  s.calibration.direction = static_cast<int32_t>(Direction::CW);
+  memset(s.calibration.lut_counts, 0, sizeof(s.calibration.lut_counts));
+}
+
 struct PersistedSettings {
   uint32_t magic;
   uint32_t version;

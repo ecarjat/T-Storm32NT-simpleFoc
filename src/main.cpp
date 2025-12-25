@@ -105,7 +105,12 @@ void setup() {
   // 1) Init basic IO (LED + UART DMA) early.
   status_led_init();
   init_uart_dma(UART_BAUD);
+
+  // Load settings from flash, or use defaults if not present/valid.
   const bool settings_loaded = load_settings_from_flash();
+  if (!settings_loaded) {
+    init_settings_defaults();
+  }
   bool calibration_loaded = false;
 
   // 2) Configuration: use encoder or force open-loop based on board setting.

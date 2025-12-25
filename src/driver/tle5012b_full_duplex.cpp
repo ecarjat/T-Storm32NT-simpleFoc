@@ -10,46 +10,36 @@
 #include "utility/spi_com.h"
 extern "C" uint32_t spi_getClkFreqInst(SPI_TypeDef* spi_inst);
 
-#define TLE5012B_CPR 32768.0f
-#define _2PI 6.28318530718f
-#define TLE5012B_READ_REGISTER 0x8000
-#define TLE5012B_ANGLE_REG 0x0020
-#define TLE5012B_SAFE_BIT 0x0001  // request safety word
+// SPI protocol constants
+constexpr uint16_t TLE5012B_READ_REGISTER = 0x8000;
+constexpr uint16_t TLE5012B_SAFE_BIT = 0x0001;  // Request safety word
 
 // CRC constants (from Infineon TLx5012 docs)
-#define CRC_POLYNOMIAL 0x1D
-#define CRC_SEED 0xFF
-#define SYSTEM_ERROR_MASK 0x4000
-#define INTERFACE_ERROR_MASK 0x2000
-#define INV_ANGLE_ERROR_MASK 0x1000
-#define DELETE_BIT_15 0x7FFF
-#define CHANGE_UINT_TO_INT_15 0x8000
-#define CHECK_BIT_14 0x4000
-#define MAX_REGISTER_MEM 0x0030  // vendor buffer length
+constexpr uint8_t CRC_POLYNOMIAL = 0x1D;
+constexpr uint8_t CRC_SEED = 0xFF;
+
+// Safety word bit masks
+constexpr uint16_t SYSTEM_ERROR_MASK = 0x4000;
+constexpr uint16_t INTERFACE_ERROR_MASK = 0x2000;
+constexpr uint16_t INV_ANGLE_ERROR_MASK = 0x1000;
+
+// Angle data masks
+constexpr uint16_t DELETE_BIT_15 = 0x7FFF;
 
 // STAT bit masks (from vendor bitFields table)
-#define STAT_SRST (1u << 0)
-#define STAT_SWD (1u << 1)
-#define STAT_SVR (1u << 2)
-#define STAT_SFUSE (1u << 3)
-#define STAT_SDSPU (1u << 4)
-#define STAT_SOV (1u << 5)
-#define STAT_SXYOL (1u << 6)
-#define STAT_SMAGOL (1u << 7)
-#define STAT_SADCT (1u << 9)
-#define STAT_SROM (1u << 10)
-#define STAT_NOGMRXY (1u << 11)
-#define STAT_NOGMRA (1u << 12)
-#define STAT_RDST (1u << 15)
-
-// Safety error types (mirrors vendor values).
-enum SafetyError : uint8_t {
-  SAFETY_NO_ERROR = 0x00,
-  SAFETY_SYSTEM_ERROR = 0x01,
-  SAFETY_INTERFACE_ERROR = 0x02,
-  SAFETY_INVALID_ANGLE = 0x03,
-  SAFETY_CRC_ERROR = 0xFF
-};
+constexpr uint16_t STAT_SRST = (1u << 0);
+constexpr uint16_t STAT_SWD = (1u << 1);
+constexpr uint16_t STAT_SVR = (1u << 2);
+constexpr uint16_t STAT_SFUSE = (1u << 3);
+constexpr uint16_t STAT_SDSPU = (1u << 4);
+constexpr uint16_t STAT_SOV = (1u << 5);
+constexpr uint16_t STAT_SXYOL = (1u << 6);
+constexpr uint16_t STAT_SMAGOL = (1u << 7);
+constexpr uint16_t STAT_SADCT = (1u << 9);
+constexpr uint16_t STAT_SROM = (1u << 10);
+constexpr uint16_t STAT_NOGMRXY = (1u << 11);
+constexpr uint16_t STAT_NOGMRA = (1u << 12);
+constexpr uint16_t STAT_RDST = (1u << 15);
 
 TLE5012BFullDuplex::TLE5012BFullDuplex(int mosi, int miso, int sck, int ncs, uint32_t freq_hz)
     : _mosi(mosi), _miso(miso), _sck(sck), _ncs(ncs), _freq(freq_hz) {}
@@ -147,46 +137,52 @@ void TLE5012BFullDuplex::init() {
   }
 }
 
-uint16_t TLE5012BFullDuplex::readRawAngle() {
-  static uint16_t last_good = 0;
+AngleReadResult TLE5012BFullDuplex::readRawAngleChecked() {
   uint8_t data[4] = {0};
-  // Request 1 data word + safety word.
-  readBytes(TLE5012B_ANGLE_REG | TLE5012B_SAFE_BIT, data, 2);
+  // Request 1 data word + safety word using REG_AVAL register
+  readBytes(REG_AVAL | TLE5012B_SAFE_BIT, data, 2);
 
   uint16_t angle = (((uint16_t)data[0] << 8) | data[1]) & DELETE_BIT_15;
   const uint16_t safety = ((uint16_t)data[2] << 8) | data[3];
 
   if (checkSafety(safety) != NO_ERROR) {
     status_led_pulse();
-    return last_good;
+    return {_lastValidAngle, false};
   }
-  last_good = angle;
-  // angle &= 0xFFFE;  // drop 1 LSB
-  // angle &= 0xFFFC; // drop 2 LSBs (quantize to 4-count steps)
-  return angle;
+
+  _lastValidAngle = angle;
+  return {angle, true};
+}
+
+uint16_t TLE5012BFullDuplex::readRawAngle() {
+  AngleReadResult result = readRawAngleChecked();
+  return result.angle;  // Returns last valid on error (via readRawAngleChecked)
 }
 
 float TLE5012BFullDuplex::getCurrentAngle() {
-  return ((float)readRawAngle()) / TLE5012B_CPR * _2PI;
+  return static_cast<float>(readRawAngle()) / tle5012b::CPR * _2PI;
 }
 
-float TLE5012BFullDuplex::getSensorAngle() { return fmodf(getCurrentAngle(), _2PI); }
+float TLE5012BFullDuplex::getSensorAngle() {
+  return fmodf(getCurrentAngle(), _2PI);
+}
 
 bool TLE5012BFullDuplex::readStatus(uint16_t& stat_out) {
   uint8_t data[4] = {0};
   readBytes(REG_STAT | TLE5012B_SAFE_BIT, data, 2);
   uint16_t stat = ((uint16_t)data[0] << 8) | data[1];
   const uint16_t safety = ((uint16_t)data[2] << 8) | data[3];
-  if (!checkSafety(safety)) {
+  if (checkSafety(safety) != NO_ERROR) {
     return false;
   }
+  _stat = stat;
   stat_out = stat;
   return true;
 }
 
 void TLE5012BFullDuplex::logStatusBits() {
-  if (_stat == 1) {
-    return;
+  if (_stat == tle5012b::STAT_UNREAD) {
+    return;  // Status has never been read
   }
   char msg[96] = {0};
   // Collect set flags.
@@ -214,12 +210,13 @@ void TLE5012BFullDuplex::readBytes(uint16_t reg, uint8_t* data, uint8_t len) {
   reg |= TLE5012B_READ_REGISTER + (len >> 1);
   uint8_t txbuffer[2] = {static_cast<uint8_t>(reg >> 8), static_cast<uint8_t>(reg & 0x00FF)};
   uint8_t dummy[2] = {0, 0};
-  HAL_SPI_TransmitReceive(&_spi, txbuffer, dummy, 2, 100);
-  // Datasheet requires a tiny delay after changing data direction (twr_delay ~130 ns).
-  for (volatile int i = 0; i < 15; i++) {
+  HAL_SPI_TransmitReceive(&_spi, txbuffer, dummy, 2, tle5012b::SPI_TIMEOUT_MS);
+
+  // Datasheet requires a tiny delay after changing data direction (twr_delay ~130 ns at 72MHz)
+  for (volatile int i = 0; i < tle5012b::TWR_DELAY_NOPS; i++) {
     __NOP();
   }
-  HAL_SPI_TransmitReceive(&_spi, dummy, data, len + 2, 100);
+  HAL_SPI_TransmitReceive(&_spi, dummy, data, len + 2, tle5012b::SPI_TIMEOUT_MS);
 
   digitalWrite(_ncs, HIGH);
 }
