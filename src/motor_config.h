@@ -2,10 +2,10 @@
 
 #include <cstddef>
 
-// Reserve the last 1KB flash page (64KB device) for settings.
-// Bootloader is at 0x08000000-0x08001FFF, app starts at 0x08002000, app size ~50KB,
-// so 0x0800FC00 should remain unused by app/bootloader.
-constexpr uint32_t SETTINGS_ADDR = 0x0800FC00UL;
+// Reserve the last 2KB flash pages (64KB device) for settings.
+// Bootloader is at 0x08000000-0x08001FFF, app starts at 0x08002000, app size ~54KB,
+// so 0x0800F800 should remain unused by app/bootloader.
+constexpr uint32_t SETTINGS_ADDR = 0x0800F800UL;
 constexpr uint32_t SETTINGS_MAGIC = 0x53544631; // "STF1"
 constexpr uint32_t SETTINGS_VERSION = 6;
 

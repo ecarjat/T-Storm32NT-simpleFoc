@@ -28,9 +28,9 @@ struct PersistedSettings {
   uint32_t crc;
 };
 
-// Compile-time size check so we know the flash page still fits the struct.
+// Compile-time size check so we know the flash pages still fit the struct.
 static constexpr size_t PERSISTED_SETTINGS_SIZE = sizeof(PersistedSettings);
-static_assert(PERSISTED_SETTINGS_SIZE <= 1024, "Persisted settings exceed reserved 1KB flash page");
+static_assert(PERSISTED_SETTINGS_SIZE <= 2048, "Persisted settings exceed reserved 2KB flash pages");
 
 static PersistedSettings* flash_ptr() {
   return reinterpret_cast<PersistedSettings*>(SETTINGS_ADDR);
@@ -49,12 +49,12 @@ bool load_settings_from_flash() {
   return true;
 }
 
-static bool flash_erase_page(uint32_t address) {
+static bool flash_erase_pages(uint32_t address, uint32_t num_pages) {
   HAL_FLASH_Unlock();
   FLASH_EraseInitTypeDef erase = {};
   erase.TypeErase = FLASH_TYPEERASE_PAGES;
   erase.PageAddress = address;
-  erase.NbPages = 1;
+  erase.NbPages = num_pages;
   uint32_t page_error = 0;
   HAL_StatusTypeDef st = HAL_FLASHEx_Erase(&erase, &page_error);
   HAL_FLASH_Lock();
@@ -119,7 +119,7 @@ bool save_settings_to_flash(const BLDCMotor& motor, const BLDCDriver3PWM& driver
   blob.data = s;
   blob.crc = crc32_calc(reinterpret_cast<const uint8_t*>(&blob.data), sizeof(RuntimeSettings));
 
-  if (!flash_erase_page(SETTINGS_ADDR)) {
+  if (!flash_erase_pages(SETTINGS_ADDR, 2)) {
     return false;
   }
   return flash_write_bytes(SETTINGS_ADDR, reinterpret_cast<const uint8_t*>(&blob), sizeof(blob));
