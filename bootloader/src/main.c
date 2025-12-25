@@ -79,16 +79,25 @@ static bool app_is_valid(void) {
   return sp_ok && rv_ok;
 }
 
-__attribute__((naked, noreturn)) static void jump_to_app(void) {
+__attribute__((noreturn)) static void jump_to_app(void) {
+  uint32_t app_addr = APP_START_ADDR;
+  uint32_t sp = *(__IO uint32_t *)app_addr;
+  uint32_t rv = *(__IO uint32_t *)(app_addr + 4U);
+
+  // Set vector table offset register
+  SCB->VTOR = app_addr;
+
+  // Set stack pointer and jump
   __asm volatile(
-      "ldr r0, =0x08002000\n"
-      "ldr r1, [r0]\n"
-      "ldr r2, [r0, #4]\n"
-      "msr msp, r1\n"
-      "ldr r3, =0xE000ED08\n"
-      "str r0, [r3]\n"
+      "msr msp, %0\n"
       "cpsie i\n"
-      "bx r2\n");
+      "bx %1\n"
+      :
+      : "r"(sp), "r"(rv)
+      : "memory");
+
+  // Should never reach here
+  while (1) {}
 }
 
 static void SystemClock_Config(void) {
