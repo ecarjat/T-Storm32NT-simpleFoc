@@ -6,6 +6,7 @@
 
 namespace {
 constexpr uint32_t PULSE_DURATION_MS = 50;
+constexpr uint32_t CRITICAL_BLINK_MS = 200;  // Fast blink for critical fault
 
 bool led_initialized = false;
 bool critical_fault = false;
@@ -33,6 +34,12 @@ void status_led_pulse() {
 }
 
 bool status_led_is_pulsing() {
+  // Critical fault: fast continuous blink (LED OFF during half the cycle)
+  if (critical_fault) {
+    return ((millis() / CRITICAL_BLINK_MS) % 2) == 0;
+  }
+
+  // Normal pulse logic
   if (pulse_start_ms == 0) {
     return false;
   }
@@ -42,4 +49,8 @@ bool status_led_is_pulsing() {
     return false;
   }
   return true;
+}
+
+bool status_led_has_critical_fault() {
+  return critical_fault;
 }

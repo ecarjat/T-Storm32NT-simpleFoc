@@ -187,8 +187,7 @@ void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, 
   telemetry.init(*stream_io);
 }
 
-void handle_streams(BLDCMotor &motor) {
-  (void)motor;
+void handle_streams() {
   if (!stream_io) {
     return;
   }

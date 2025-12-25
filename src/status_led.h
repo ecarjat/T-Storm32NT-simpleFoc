@@ -14,4 +14,8 @@ void status_led_pulse();
 
 // Returns true if currently in a pulse window (LED should be OFF).
 // Call this from main loop to determine LED state.
+// Also returns true during critical fault blink pattern.
 bool status_led_is_pulsing();
+
+// Returns true if a critical fault has been registered.
+bool status_led_has_critical_fault();

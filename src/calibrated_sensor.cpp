@@ -31,16 +31,16 @@ int32_t median_int32(int32_t* arr, int n) {
   }
 }
 
-int32_t trimmed_mean_int32(int32_t* arr, int n, int k) {
+int32_t trimmed_mean_int32(int32_t* arr, int n, unsigned int k) {
   if (n <= 0) return 0;
-  if (n <= 2 * k) {
+  if (static_cast<unsigned int>(n) <= 2 * k) {
     // Not enough samples to trim, just return median
     return median_int32(arr, n);
   }
   insertion_sort_int32(arr, n);
   int64_t sum = 0;
-  int count = n - 2 * k;
-  for (int i = k; i < n - k; i++) {
+  int count = n - 2 * static_cast<int>(k);
+  for (int i = static_cast<int>(k); i < n - static_cast<int>(k); i++) {
     sum += arr[i];
   }
   return static_cast<int32_t>(sum / count);
@@ -145,7 +145,8 @@ static void filter_error(
   // Fill initial window buffer (wrap around from end of array)
   for (int i = 0; i < window; i++) {
     int ind = n_ticks - window / 2 - 1 + i;
-    if (ind < 0) ind += n_ticks;
+    // Ensure positive index before modulo (handles negative wrap correctly)
+    while (ind < 0) ind += n_ticks;
     ind = ind % n_ticks;
     window_buffer[i] = error[ind];
     window_sum += window_buffer[i];

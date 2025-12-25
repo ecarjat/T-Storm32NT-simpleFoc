@@ -58,20 +58,6 @@ class TLE5012BFullDuplex : public Sensor {
   void resetSafety();
   uint8_t crc8_calc(const uint8_t* data, uint8_t length);
 
-  /*!
-   * Gets the first byte of a 2 byte word
-   * @param twoByteWord insert word of two bytes long
-   * @return returns the first byte
-   */
-  uint8_t getFirstByte(uint16_t twoByteWord) { return ((uint8_t)(twoByteWord >> 8)); }
-
-  /*!
-   * Gets the second byte of the 2 byte word
-   * @param twoByteWord insert word of two bytes long
-   * @return returns the second byte
-   */
-  uint8_t getSecondByte(uint16_t twoByteWord) { return ((uint8_t)twoByteWord); }
-
   int _mosi;
   int _miso;
   int _sck;
@@ -82,6 +68,7 @@ class TLE5012BFullDuplex : public Sensor {
   uint16_t _ncs_pin = 0;              // Cached pin mask
   uint16_t _safetyWord = 0;
   uint16_t _lastValidAngle = 0;  // Last successfully read angle (for fallback)
+  bool _initFailed = true;       // True until init() succeeds
 };
 
 #endif

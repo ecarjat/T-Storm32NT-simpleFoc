@@ -123,10 +123,17 @@ void TLE5012BFullDuplex::init() {
   if (HAL_SPI_Init(&_spi) != HAL_OK) {
     log_packet(LOG_ERROR, "TLE5012B", "SPI_INIT_ERR");
     status_led_set_critical_fault(true);
+    _initFailed = true;
+    return;
   }
+  _initFailed = false;
 }
 
 AngleReadResult TLE5012BFullDuplex::readRawAngleChecked() {
+  if (_initFailed) {
+    return {_lastValidAngle, false};
+  }
+
   uint8_t data[4] = {0};
   // Request 1 data word + safety word using REG_AVAL register
   uint16_t cmdWord = readBytes(REG_AVAL | TLE5012B_SAFE_BIT, data, 2);
@@ -181,7 +188,12 @@ uint16_t TLE5012BFullDuplex::readBytes(uint16_t reg, uint8_t* data, uint8_t len)
 bool TLE5012BFullDuplex::validateCrc(uint16_t cmdWord, const uint8_t* data, uint8_t dataLen, uint16_t safety) {
   // CRC is computed over: command word (2 bytes) + data words (dataLen bytes)
   // CRC received is the lower 8 bits of the safety word
-  uint8_t crcBuffer[6];  // Max: 2 cmd + 4 data bytes (for 2-word reads)
+  // Buffer is 6 bytes: 2 cmd + max 4 data bytes
+  if (dataLen > 4) {
+    return false;  // Bounds check - prevent buffer overflow
+  }
+
+  uint8_t crcBuffer[6];
   crcBuffer[0] = static_cast<uint8_t>(cmdWord >> 8);
   crcBuffer[1] = static_cast<uint8_t>(cmdWord & 0xFF);
   for (uint8_t i = 0; i < dataLen; i++) {

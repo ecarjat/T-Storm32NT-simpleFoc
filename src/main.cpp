@@ -224,7 +224,7 @@ void loop() {
   if (!(count % 10000)) {
     log_timer();
   }
-  handle_streams(motor);
+  handle_streams();
 
   // LED: OFF during error pulse, ON otherwise
   digitalWrite(STATUS_LED_PIN, status_led_is_pulsing() ? LOW : HIGH);
