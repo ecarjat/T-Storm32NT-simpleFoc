@@ -111,3 +111,10 @@ Molex connector
 - TX
 - 5V
 - VBAT
+
+Current wiring:
+GND: Black
+RX: Green
+TX: Blue
+5V Yellow
+VBAT: Red

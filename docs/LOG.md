@@ -53,7 +53,7 @@ Notes:
 
 ## Host Implementation (Python)
 
-Add a handler in the BinaryIO packet reader in `cli/pysfoc` that recognizes
+Add a handler in the RobustBinaryIO packet reader in `cli/pysfoc` that recognizes
 type `L` and decodes the payload into printable text.
 
 Example decoder (pseudo-code):
