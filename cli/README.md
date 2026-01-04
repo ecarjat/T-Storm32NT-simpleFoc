@@ -30,7 +30,7 @@ python pysimplefoc_cli.py --port /dev/tty.usbmodemXXXX --baud 460800
 - `q` → quit
 
 Notes:
-- Assumes UART text PacketCommander (default firmware). Telemetry packets are ignored.
+- Assumes UART RobustBinaryIO PacketCommander framing. Text protocol is not supported here.
 - If the firmware is configured sensorless (BOARD_USE_ENCODER=false), the app stays in velocity_openloop and uses timed moves for “full rotation”/steps.
 - If an encoder is available, the app switches to angle control for precise moves.
 

@@ -1,0 +1,1 @@
+../../stm32Controller/firmware/docs/RobustBinaryV2Migration.md

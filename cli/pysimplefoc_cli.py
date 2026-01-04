@@ -8,7 +8,7 @@ Features:
 - Slow run CW/CCW with target adjust via up/down arrows
 - Velocity PID tuning helper (P/p I/i D/d adjust, live target/velocity graph)
 
-It talks the text PacketCommander protocol over UART (PA9/PA10). Works with or without encoder:
+It talks the RobustBinaryIO PacketCommander protocol over UART (PA9/PA10). Works with or without encoder:
 - If encoder is available (control mode angle supported), uses angle moves.
 - If sensorless (velocity_openloop), uses timed velocity moves.
 """
@@ -212,9 +212,9 @@ def main():
     parser.add_argument("--port", required=True, help="Serial port (e.g. /dev/ttyACM0 or COM3)")
     parser.add_argument("--baud", type=int, default=460800, help="Baud rate (default: 460800)")
     parser.add_argument(
-        "--binary",
+        "--rbinary",
         action="store_true",
-        help="Use BinaryPacketCommanderClient (BinaryIO protocol) instead of text PacketCommander",
+        help="Use BinaryPacketCommanderClient (RobustBinaryIO protocol, default)",
     )
     args = parser.parse_args()
 

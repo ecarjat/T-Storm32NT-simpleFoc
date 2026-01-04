@@ -2,16 +2,16 @@
 """
 Host-side updater for the firmware via either UART bootloader or STLink (st-flash).
 UART protocol:
- 1) Optionally send a reset-to-bootloader command (ASCII "B6\n") to the app (uses the firmware baud).
- 2) Reopen the port at the bootloader baud, wait for "BOOT", then send "UPD0" + <len> + <crc32>.
+ 1) Optionally send a reset-to-bootloader command (text "B6\\n", BinaryIO, or RobustBinaryIO v2 'C' command) to the app.
+ 2) Reopen the port at the bootloader baud, then send "UPD0" + <len> + <crc32>.
  3) Bootloader replies "OK", accepts the firmware bytes, and replies "OK" on success.
 
 STLink path:
- Uses st-flash to write the app binary directly to the app start address (default 0x08002000).
+ Uses st-flash to write the app binary directly to the app start address (default 0x08001800).
 
 Examples:
   python flash_firmware.py --port /dev/ttyACM0 --bin ../.pio/build/tstorm32_simplefoc/firmware.bin            # UART (reset @460800, boot @115200)
-  python flash_firmware.py --stlink --bin ../.pio/build/tstorm32_simplefoc/firmware.bin --addr 0x08002000     # STLink
+  python flash_firmware.py --stlink --bin ../.pio/build/tstorm32_simplefoc/firmware.bin --addr 0x08001800     # STLink
 """
 import argparse
 import binascii
@@ -29,7 +29,51 @@ RESET_CMD = b"B6\n"
 RESET_CMD_BINARY = bytes([0xA5, 0x02, ord("B"), 0x06])  # BinaryIO packet: marker, size, type='B', payload=0x06
 DEFAULT_RESET_BAUD = 460800
 DEFAULT_BOOTLOADER_BAUD = 115200
-DEFAULT_APP_ADDR = "0x08002000"
+DEFAULT_APP_ADDR = "0x08001800"
+
+ROBUST_MARKER = 0xA5
+ROBUST_ESC = 0xDB
+ROBUST_ESC_MARKER = 0xDC
+ROBUST_ESC_ESC = 0xDD
+ROBUST_CRC_SIZE = 4
+
+
+def crc32_mpeg2(data: bytes) -> int:
+    if not data:
+        return 0xFFFFFFFF
+    poly = 0x04C11DB7
+    crc = 0xFFFFFFFF
+    pad_len = (-len(data)) % 4
+    if pad_len:
+        data = data + (b"\x00" * pad_len)
+    for byte in data:
+        crc ^= (byte << 24) & 0xFFFFFFFF
+        for _ in range(8):
+            if crc & 0x80000000:
+                crc = ((crc << 1) & 0xFFFFFFFF) ^ poly
+            else:
+                crc = (crc << 1) & 0xFFFFFFFF
+    return crc & 0xFFFFFFFF
+
+
+def escape_robust(data: bytes) -> bytes:
+    out = bytearray()
+    for byte in data:
+        if byte == ROBUST_MARKER:
+            out.extend([ROBUST_ESC, ROBUST_ESC_MARKER])
+        elif byte == ROBUST_ESC:
+            out.extend([ROBUST_ESC, ROBUST_ESC_ESC])
+        else:
+            out.append(byte)
+    return bytes(out)
+
+
+def build_reset_frame_rbinary() -> bytes:
+    payload = bytes([0x03])
+    length = 1 + len(payload) + ROBUST_CRC_SIZE
+    data = bytes([length, ord("C")]) + payload
+    crc = crc32_mpeg2(data)
+    return bytes([ROBUST_MARKER]) + escape_robust(data + crc.to_bytes(4, "little"))
 
 
 def read_bin(path):
@@ -37,9 +81,11 @@ def read_bin(path):
         return f.read()
 
 
-def send_reset(ser, binary: bool = False):
-    """Send bootloader reset command either as ASCII 'B6\\n' or BinaryIO packet."""
-    if binary:
+def send_reset(ser, mode: str = "text"):
+    """Send bootloader reset command ('text', 'binary', or 'rbinary')."""
+    if mode == "rbinary":
+        ser.write(build_reset_frame_rbinary())
+    elif mode == "binary":
         ser.write(RESET_CMD_BINARY)
     else:
         ser.write(RESET_CMD)
@@ -79,12 +125,12 @@ def flash(port, reset_baud, boot_baud, bin_path, reset_first, binary_reset):
     crc = binascii.crc32(fw) & 0xFFFFFFFF
 
     if reset_first:
-        reset_kind = "binary" if binary_reset else "text"
+        reset_kind = binary_reset
         print(f"Requesting reset to bootloader ({reset_kind}) @ {reset_baud}...")
         with serial.Serial(port, baudrate=reset_baud, timeout=0.5) as ser:
             ser.reset_input_buffer()
             ser.reset_output_buffer()
-            send_reset(ser, binary=binary_reset)
+            send_reset(ser, mode=reset_kind)
         # Reopen at bootloader baud to catch BOOT banner
         # time.sleep(0.2)
 
@@ -163,9 +209,14 @@ def main():
         action="store_true",
         help="Send bootloader reset using BinaryIO framing (0xA5 0x02 'B' 0x06) instead of text 'B6\\n'",
     )
+    parser.add_argument(
+        "--rbinary-reset",
+        action="store_true",
+        help="Send bootloader reset using RobustBinaryIO framing instead of text 'B6\\n'",
+    )
     parser.add_argument("--stlink", action="store_true", help="Use st-flash (STLink) instead of UART bootloader")
     parser.add_argument("--stflash", default="st-flash", help="st-flash executable (default: st-flash in PATH)")
-    parser.add_argument("--addr", default=DEFAULT_APP_ADDR, help="Flash address for st-flash (default 0x08002000)")
+    parser.add_argument("--addr", default=DEFAULT_APP_ADDR, help="Flash address for st-flash (default 0x08001800)")
     args = parser.parse_args()
 
     bin_path = os.path.abspath(args.bin)
@@ -194,7 +245,7 @@ def main():
         args.boot_baud,
         bin_path,
         reset_first=not args.no_reset,
-        binary_reset=args.binary_reset,
+        binary_reset="rbinary" if args.rbinary_reset else ("binary" if args.binary_reset else "text"),
     )
     sys.exit(0 if ok else 1)
 

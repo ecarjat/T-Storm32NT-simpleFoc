@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Encoder performance logger (BinaryIO only).
+Encoder performance logger (RobustBinaryIO only).
 
 - Sets telemetry to [target, velocity, sensor_mech_angle]
 - Sets telemetry rate to 500 Hz

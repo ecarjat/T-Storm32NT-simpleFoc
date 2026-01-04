@@ -20,7 +20,7 @@ def sensor_calibration_menu(client: BinaryPacketCommanderClient, state: MotorSta
         client.write_reg(REGISTER_IDS["telemetry_downsample"], 0)
     except Exception:
         pass
-    result = client.run_calibration(timeout=10.0)
+    result = client.run_calibration(timeout=20.0)
     if result is True:
         print("Calibration successful (C2 => 1).")
     elif result is False:

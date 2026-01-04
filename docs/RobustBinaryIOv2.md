@@ -1,0 +1,1 @@
+../../stm32Controller/firmware/docs/RobustBinaryIOv2.md

@@ -7,7 +7,8 @@
 
 #include "board_pins.h"
 #include "calibrated_sensor.h"
-#include "flushing_binary_io.h"
+#include "command_defs.h"
+#include "robust_binary_io.h"
 #include "log_packet.h"
 #include "runtime_settings.h"
 #include "status_led.h"
@@ -32,7 +33,7 @@ static uint8_t telemetry_registers[] = {
 };
 
 static Telemetry telemetry;
-static BinaryIO *stream_io = nullptr;
+static RobustBinaryIO *stream_io = nullptr;
 
 static bool perform_sensor_calibration() {
   if (!g_motor || !g_driver || !g_raw_sensor || !g_calibrated_sensor) {
@@ -92,8 +93,13 @@ static bool perform_sensor_calibration() {
   return saved;
 }
 
-// Custom PacketCommander that catches a 'B' packet to trigger bootloader reset.
-class BootPacketCommander : public PacketCommander {
+// Send command response packet (v2 protocol)
+static void send_command_response(PacketIO *io, uint8_t cmd_id, uint8_t status) {
+  *io << START_PACKET(PKT_CMD_RESPONSE, 2) << cmd_id << status << END_PACKET;
+}
+
+// Custom PacketCommander that handles consolidated 'C' command packets (v2 protocol).
+class CommandPacketCommander : public PacketCommander {
 public:
   using PacketCommander::PacketCommander;
 
@@ -125,51 +131,68 @@ public:
 
 protected:
   bool handlePacket(Packet &packet) override {
+    // Handle consolidated command packet (v2 protocol)
+    if (packet.type == PKT_CMD_REQUEST) {
+      uint8_t cmd_id = 0;
+      *_io >> cmd_id;
+
+      switch (cmd_id) {
+        case CMD_WRITE: {
+          // Save settings to flash
+          if (motors[curMotor] && g_driver) {
+            auto *m = static_cast<BLDCMotor *>(motors[curMotor]);
+            bool ok = save_settings_to_flash(*m, *g_driver);
+            send_command_response(_io, cmd_id, ok ? CMD_STATUS_OK : CMD_STATUS_ERROR);
+          } else {
+            send_command_response(_io, cmd_id, CMD_STATUS_ERROR);
+          }
+          break;
+        }
+
+        case CMD_CALIBRATE: {
+          // Run sensor calibration
+          bool ok = perform_sensor_calibration();
+          send_command_response(_io, cmd_id, ok ? CMD_STATUS_OK : CMD_STATUS_ERROR);
+          break;
+        }
+
+        case CMD_BOOTLOADER: {
+          // Enter bootloader - no response (device resets immediately)
+          request_bootloader_reset();
+          break;
+        }
+
+        default:
+          // Unknown command
+          send_command_response(_io, cmd_id, CMD_STATUS_UNKNOWN);
+          break;
+      }
+      return true;
+    }
+
+    // Legacy support: handle old 'B' packet for bootloader (deprecated in v2)
     if (packet.type == 'B') {
       uint8_t code = 0;
       *_io >> code;
-      // require "B6" (at least two chars before newline) to avoid accidental resets
       if (code == 6) {
         request_bootloader_reset();
       }
       return true;
     }
-    if (packet.type == 'W') {
-      uint8_t code = 0;
-      *_io >> code;
-      if (code == 1 && motors[curMotor] && g_driver) {
-        // PacketCommander stores FOCMotor*, but we add a BLDCMotor so this cast is safe here.
-        auto *m = static_cast<BLDCMotor *>(motors[curMotor]);
-        bool ok = save_settings_to_flash(*m, *g_driver);
-        // Respond with w1=1 (ok) or w1=0 (fail) over BinaryIO.
-        *_io << START_PACKET('w', 2) << (uint8_t)1 << Separator('=') << (uint8_t)(ok ? 1 : 0) << END_PACKET;
-      }
-      return true;
-    }
-    if (packet.type == 'C') {
-      uint8_t code = 0;
-      *_io >> code;
-      // "C2" runs sensor calibration and stores LUT to flash.
-      if (code == 2) {
-        bool ok = perform_sensor_calibration();
-        // Respond with c2=1 (ok) or c2=0 (fail) similar to register responses.
-        *_io << START_PACKET('c', 2) << (uint8_t)2 << Separator('=') << (uint8_t)(ok ? 1 : 0) << END_PACKET;
-      }
-      return true;
-    }
+
     return PacketCommander::handlePacket(packet);
   }
 };
 
 // Binary stream over UART1 (PA9/PA10) for PacketCommander + Telemetry.
-static BootPacketCommander packet_commander(/*echo=*/true);
+static CommandPacketCommander packet_commander(/*echo=*/true);
 
 
 // BKP_DR1 magic to request bootloader (handled in bootloader on reset)
 constexpr uint16_t BOOT_MAGIC = 0xB007;
 
 void init_streams(BLDCMotor &motor, BLDCDriver3PWM &driver, Sensor &raw_sensor, StoredCalibratedSensor &calibrated) {
-  static FlushingBinaryIO dma_io(uart_dma_stream());
+  static FlushingRobustBinaryIO dma_io(uart_dma_stream());
   stream_io = &dma_io;
   g_driver = &driver;
   g_motor = &motor;

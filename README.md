@@ -50,29 +50,19 @@ cd cli
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-# Text protocol (legacy)
-python pysimplefoc_cli.py --port /dev/tty.usbserial-XXXX --baud 460800
-
-# BinaryIO protocol (current firmware default)
-python pysimplefoc_cli.py --port /dev/tty.usbserial-XXXX --baud 460800 --binary
+# RobustBinaryIO protocol (current firmware default)
+python pysimplefoc_cli.py --port /dev/tty.usbserial-XXXX --baud 460800 --rbinary
 ```
 Main menu:
 - **Settings** – view/edit key registers (pole pairs, voltage/velocity limits, driver supply/limit, phase resistance, KV, velocity PID gains/LPF) and send `S1` to persist to flash.
 - **Test** – curses UI for motion commands (full rotations, steps, slow run with speed adjust). `q` returns to menu.
 
-### BinaryIO communications (PacketCommander/Telemetry)
-The firmware uses BinaryIO framing on UART (PA9/PA10) for PacketCommander and Telemetry. Packets are framed with a marker + size, so no newline terminator is needed. A small wrapper (`FlushingBinaryIO`) flushes the UART at `END_PACKET` so each packet is sent immediately rather than waiting for the internal buffer to fill.
-- Frame format: `[0xA5][size][type][payload...]`
-  - `0xA5` is the BinaryIO marker.
-  - `size` is the length of `type + payload` (so a register write with 1-byte payload uses size=2).
-  - Types: `0x52 ('R')` register request, `0x72 ('r')` register response, `0x48 ('H')` telemetry header, `0x54 ('T')` telemetry data, `0x42 ('B')` boot/reset, `0x53 ('S')` sync.
-- Register write example (enable motor, REG_ENABLE=1): `A5 03 52 04 01`
-  - `0x03` size → bytes `[type, reg, value]`
-  - `0x52` = 'R' (register write), `0x04` = REG_ENABLE, `0x01` = enabled
-- Register response example (echo of above): `A5 03 72 04 01` (`0x72`='r')
-- Telemetry header: `A5 <size> 48 <id> [motor][reg]...` (pairs for each reg)
-- Telemetry frame: `A5 <size> 54 <id> <raw register data blobs>` (float/int payloads in little-endian)
-- Boot/reset packet handled by firmware: `A5 02 42 06` (matches `flash_firmware.py --binary-reset`)
+### RobustBinaryIO communications (PacketCommander/Telemetry)
+The firmware uses RobustBinaryIO framing on UART (PA9/PA10) for PacketCommander and Telemetry. Frames include byte stuffing and CRC-32. See `docs/RobustBinaryIO.md` for the full spec.
+- Frame format: `[0xA5][LEN][TYPE][PAYLOAD...][CRC32]`
+- `LEN` is the length of `TYPE + PAYLOAD + CRC32`.
+- CRC-32 is computed over `LEN + TYPE + PAYLOAD` and sent little-endian.
+- 0xA5/0xDB are escaped using SLIP-style sequences.
 
 ## Persistence
 A reserved flash page (0x0800FC00) stores selected motor/driver settings. `S1` packets (or the CLI “Save” action) invoke `save_settings_to_flash` in firmware. On boot the app prints `SETTINGS_LOADED` when valid data is applied, otherwise `SETTINGS_DEFAULT`.

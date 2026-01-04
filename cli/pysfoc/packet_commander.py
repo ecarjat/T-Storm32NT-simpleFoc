@@ -40,7 +40,7 @@ from .constants import (
     REGISTER_IDS,
 )
 
-MAX_BINARY_TELEM_PAYLOAD = 254  # BinaryIO size byte is payload+type; keep well under this for safety
+MAX_BINARY_TELEM_PAYLOAD = 250  # RobustBinaryIO LEN includes type+payload+CRC32
 MAX_TELEM_REGS = 8  # matches TELEMETRY_MAX_REGISTERS on firmware
 
 READ_REGEX = re.compile(READ_REGEX_PATTERN, re.IGNORECASE)
@@ -63,26 +63,32 @@ class TelemetrySample:
 
 class BinaryPacketCommanderClient:
     """
-    Binary PacketCommander transport (BinaryIO framing, marker 0xA5).
+    Binary PacketCommander transport (RobustBinaryIO framing, marker 0xA5).
 
-    Packet layout (BinaryIO):
-      [0xA5][size][type][payload...]
-        - size = len(type + payload) = 1 + payload_len
-        - payload for register response: [reg][raw bytes...]
+    Packet layout (RobustBinaryIO):
+      [0xA5][LEN][TYPE][PAYLOAD...][CRC32]
+        - LEN = len(type + payload + crc32) = 1 + payload_len + 4
+        - CRC32 is little-endian CRC-32/MPEG-2 over LEN+TYPE+PAYLOAD
     """
 
     MARKER = 0xA5
+    ESC = 0xDB
+    ESC_MARKER = 0xDC
+    ESC_ESC = 0xDD
+    CRC_SIZE = 4
     PACKET_REGISTER = ord("R")
     PACKET_RESPONSE = ord("r")
     PACKET_TELEM_HEADER = ord("H")
     PACKET_TELEM = ord("T")
     PACKET_SYNC = ord("S")
-    PACKET_BOOT = ord("B")
-    PACKET_SAVE = ord("W")
-    PACKET_SAVE_RESP = ord("w")
-    PACKET_CAL = ord("C")
-    PACKET_CAL_RESP = ord("c")
+    PACKET_COMMAND = ord("C")
+    PACKET_COMMAND_RESP = ord("c")
     PACKET_LOG = ord("L")
+
+    CMD_WRITE = 0x01
+    CMD_CALIBRATE = 0x02
+    CMD_BOOTLOADER = 0x03
+    CMD_STATUS_OK = 0x00
 
     _INT_REGS = {
         REG_STATUS,
@@ -118,6 +124,13 @@ class BinaryPacketCommanderClient:
         self.log_packets = log_packets
         self._log = logger or (lambda msg: print(msg))
         self._rx_buf = bytearray()
+        self._rx_pos = 0
+        self._parse_state = "idle"
+        self._parse_expected_len = 0
+        self._parse_buf = bytearray()
+        self._parse_esc_pending = False
+        self.sync_losses = 0
+        self.crc_errors = 0
 
     def close(self):
         try:
@@ -126,6 +139,38 @@ class BinaryPacketCommanderClient:
             pass
 
     # --- framing helpers ---------------------------------------------------
+    @staticmethod
+    def _crc32_mpeg2(data: bytes) -> int:
+        if not data:
+            return 0xFFFFFFFF
+        poly = 0x04C11DB7
+        crc = 0xFFFFFFFF
+        pad_len = (-len(data)) % 4
+        if pad_len:
+            data = data + (b"\x00" * pad_len)
+        for byte in data:
+            crc ^= (byte << 24) & 0xFFFFFFFF
+            for _ in range(8):
+                if crc & 0x80000000:
+                    crc = ((crc << 1) & 0xFFFFFFFF) ^ poly
+                else:
+                    crc = (crc << 1) & 0xFFFFFFFF
+        return crc & 0xFFFFFFFF
+
+    @classmethod
+    def _escape_bytes(cls, data: bytes) -> bytes:
+        out = bytearray()
+        for byte in data:
+            if byte == cls.MARKER:
+                out.append(cls.ESC)
+                out.append(cls.ESC_MARKER)
+            elif byte == cls.ESC:
+                out.append(cls.ESC)
+                out.append(cls.ESC_ESC)
+            else:
+                out.append(byte)
+        return bytes(out)
+
     def _register_size(self, reg: int, fallback: int = 4) -> Optional[int]:
         if reg in self._SIZE_OVERRIDES and self._SIZE_OVERRIDES[reg] is not None:
             return self._SIZE_OVERRIDES[reg]
@@ -139,8 +184,10 @@ class BinaryPacketCommanderClient:
         return fallback
 
     def _send_packet(self, pkt_type: int, payload: bytes = b""):
-        size = len(payload) + 1  # includes packet type
-        frame = bytes([self.MARKER, size, pkt_type]) + payload
+        size = len(payload) + 1 + self.CRC_SIZE  # includes packet type + CRC32
+        data = bytes([size, pkt_type]) + payload
+        crc = self._crc32_mpeg2(data)
+        frame = bytes([self.MARKER]) + self._escape_bytes(data + crc.to_bytes(4, "little"))
         if self.debug:
             self._log(f">> type={chr(pkt_type)} size={size} payload_len={len(payload)}")
         self.ser.write(frame)
@@ -151,31 +198,70 @@ class BinaryPacketCommanderClient:
 
     def _try_extract_frame(self) -> Optional[Tuple[int, bytes]]:
         buf = self._rx_buf
-        while True:
-            if len(buf) < 3:
-                return None
-            try:
-                marker_idx = buf.index(self.MARKER)
-            except ValueError:
-                buf.clear()
-                return None
-            if marker_idx > 0:
-                del buf[:marker_idx]
-                if len(buf) < 3:
-                    return None
-            size_byte = buf[1]
-            if size_byte == 0:
-                del buf[:2]
+        while self._rx_pos < len(buf):
+            byte = buf[self._rx_pos]
+            self._rx_pos += 1
+
+            if byte == self.MARKER and not self._parse_esc_pending:
+                if self._parse_state not in ("idle", "len"):
+                    self.sync_losses += 1
+                self._parse_state = "len"
+                self._parse_buf.clear()
+                self._parse_expected_len = 0
+                self._parse_esc_pending = False
                 continue
-            total_len = size_byte + 2  # marker + size + (type+payload)
-            if len(buf) < total_len:
-                return None
-            pkt_type = buf[2]
-            payload = bytes(buf[3:total_len])
-            del buf[:total_len]
-            if self.debug:
-                self._log(f"<< type={chr(pkt_type)} payload_len={len(payload)}")
-            return pkt_type, payload
+
+            if self._parse_esc_pending:
+                self._parse_esc_pending = False
+                if byte == self.ESC_MARKER:
+                    byte = self.MARKER
+                elif byte == self.ESC_ESC:
+                    byte = self.ESC
+                else:
+                    self.sync_losses += 1
+                    self._parse_state = "idle"
+                    self._parse_buf.clear()
+                    continue
+            elif byte == self.ESC:
+                self._parse_esc_pending = True
+                continue
+
+            if self._parse_state == "idle":
+                continue
+
+            if self._parse_state == "len":
+                self._parse_expected_len = byte
+                if self._parse_expected_len < (1 + self.CRC_SIZE) or self._parse_expected_len > 255:
+                    self.sync_losses += 1
+                    self._parse_state = "idle"
+                    self._parse_buf.clear()
+                else:
+                    self._parse_buf = bytearray([byte])
+                    self._parse_state = "data"
+                continue
+
+            if self._parse_state == "data":
+                self._parse_buf.append(byte)
+                if len(self._parse_buf) >= self._parse_expected_len + 1:
+                    self._parse_state = "idle"
+                    received_crc = int.from_bytes(self._parse_buf[-self.CRC_SIZE :], "little")
+                    computed_crc = self._crc32_mpeg2(bytes(self._parse_buf[:-self.CRC_SIZE]))
+                    if computed_crc != received_crc:
+                        self.crc_errors += 1
+                        self._parse_buf.clear()
+                        continue
+                    pkt_type = self._parse_buf[1]
+                    payload_len = self._parse_expected_len - 1 - self.CRC_SIZE
+                    payload = bytes(self._parse_buf[2 : 2 + payload_len]) if payload_len > 0 else b""
+                    self._parse_buf.clear()
+                    if self.debug:
+                        self._log(f"<< type={chr(pkt_type)} payload_len={len(payload)}")
+                    return pkt_type, payload
+
+        if self._rx_pos >= len(self._rx_buf):
+            self._rx_buf.clear()
+            self._rx_pos = 0
+        return None
 
     def _read_frame(self, timeout: float = 0.5) -> Optional[Tuple[int, bytes]]:
         deadline = time.time() + timeout
@@ -253,18 +339,18 @@ class BinaryPacketCommanderClient:
                 self._handle_log(payload)
         return None
 
-    def _wait_for_command_response(self, resp_type: int, expect_code: int, timeout: float = 1.5) -> Optional[bool]:
+    def _wait_for_command_response(self, cmd_id: int, timeout: float = 1.5) -> Optional[bool]:
         deadline = time.time() + timeout
         while time.time() < deadline:
             frame = self._read_frame(deadline - time.time())
             if not frame:
                 continue
             pkt_type, payload = frame
-            if pkt_type == resp_type and len(payload) >= 2:
+            if pkt_type == self.PACKET_COMMAND_RESP and len(payload) >= 2:
                 code = payload[0]
-                if code != expect_code:
+                if code != cmd_id:
                     continue
-                return payload[1] == 1
+                return payload[1] == self.CMD_STATUS_OK
             if pkt_type == self.PACKET_TELEM_HEADER:
                 self._handle_telem_header(payload)
             elif pkt_type == self.PACKET_TELEM:
@@ -398,7 +484,7 @@ class BinaryPacketCommanderClient:
 
     def set_telemetry_registers(self, regs: List[int], motor: int = 0):
         """
-        Configure telemetry registers (REG_TELEMETRY_REG) using BinaryIO framing.
+        Configure telemetry registers (REG_TELEMETRY_REG) using RobustBinaryIO framing.
 
         Payload layout expected by SimpleFOC Telemetry::setTelemetryRegisters:
           [reg_id][count][motor,reg]*N
@@ -416,11 +502,11 @@ class BinaryPacketCommanderClient:
                 raise ValueError(f"Register id {r} out of byte range (0-255)")
             payload.append(motor)
             payload.append(int(r))
-        # BinaryIO packet: [0xA5][size][type][payload...], size = 1 + payload_len (includes type)
+        # RobustBinaryIO packet: [0xA5][LEN][TYPE][PAYLOAD...][CRC32], LEN includes CRC32
         self._send_packet(self.PACKET_REGISTER, bytes(payload))
         resp = self._wait_for_register_response(REGISTER_IDS["telemetry_reg"])
         if resp is None:
-            raise RuntimeError("No response to telemetry_reg write (BinaryIO)")
+            raise RuntimeError("No response to telemetry_reg write (RobustBinaryIO)")
         self.telemetry_headers[motor] = [(motor, r) for r in regs]
 
     # --- convenience helpers ------------------------------------------------
@@ -437,22 +523,22 @@ class BinaryPacketCommanderClient:
         self.write_reg(REG_ENABLE, 1 if enable else 0)
 
     def save_settings(self):
-        """Send the BootPacketCommander 'S1' save command and wait for binary s1 response."""
+        """Send the v2 command packet to persist settings."""
         try:
             self.ser.reset_input_buffer()
         except Exception:
             pass
-        self._send_packet(self.PACKET_SAVE, bytes([1]))
-        return self._wait_for_command_response(self.PACKET_SAVE_RESP, expect_code=1, timeout=2.0)
+        self._send_packet(self.PACKET_COMMAND, bytes([self.CMD_WRITE]))
+        return self._wait_for_command_response(self.CMD_WRITE, timeout=2.0)
 
     def run_calibration(self, timeout: float = 10.0) -> Optional[bool]:
-        """Send C2 calibration command and wait for binary c2 response."""
+        """Send v2 calibration command and wait for response."""
         try:
             self.ser.reset_input_buffer()
         except Exception:
             pass
-        self._send_packet(self.PACKET_CAL, bytes([2]))
-        return self._wait_for_command_response(self.PACKET_CAL_RESP, expect_code=2, timeout=timeout)
+        self._send_packet(self.PACKET_COMMAND, bytes([self.CMD_CALIBRATE]))
+        return self._wait_for_command_response(self.CMD_CALIBRATE, timeout=timeout)
 
 
 def map_status(val: Optional[int]) -> str:

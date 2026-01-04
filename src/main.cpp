@@ -3,6 +3,7 @@
 #include <SimpleFOC.h>
 
 #include <cstdio>
+#include "stm32f1xx_hal.h"
 
 #include "board_pins.h"
 #include "calibrated_sensor.h"
@@ -42,6 +43,8 @@ BLDCDriver3PWM driver(PHASE_U_PIN, PHASE_V_PIN, PHASE_W_PIN);
 TLE5012BFullDuplex encoder_sensor(ENC_MOSI_PIN, ENC_MISO_PIN, ENC_SCK_PIN, ENC_CS_PIN, 4000000);
 StoredCalibratedSensor calibrated_sensor(encoder_sensor);
 static bool system_running = false;
+
+CRC_HandleTypeDef hcrc;
 
 // Hardware timer
 HardwareTimer controlTimer(TIM4);
@@ -87,6 +90,7 @@ extern "C" void HardFault_Handler() {
 static void setup_driver_and_motor(bool use_encoder, Sensor* sensor);
 static void log_simplefoc_timers();
 static void control_timer_isr();
+static void init_hw_crc();
 
 void setup() {
   // Use the vector table provided by Arduino startup (VTOR should already be set)
@@ -105,6 +109,7 @@ void setup() {
   // 1) Init basic IO (LED + UART DMA) early.
   status_led_init();
   init_uart_dma(UART_BAUD);
+  init_hw_crc();
 
   // Load settings from flash, or use defaults if not present/valid.
   const bool settings_loaded = load_settings_from_flash();
@@ -178,6 +183,12 @@ static void control_timer_isr() {
     maxTime = elapsed;
   }
   control_isr_active = false;
+}
+
+static void init_hw_crc() {
+  __HAL_RCC_CRC_CLK_ENABLE();
+  hcrc.Instance = CRC;
+  HAL_CRC_Init(&hcrc);
 }
 
 static void log_timer() {

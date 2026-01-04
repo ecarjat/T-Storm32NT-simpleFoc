@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Small helper to read BinaryIO (0xA5-framed) telemetry directly from the UART
+Small helper to read RobustBinaryIO (0xA5-framed) telemetry directly from the UART
 and print decoded register values.
 
 Usage:
@@ -42,7 +42,7 @@ def parse_reg_list(reg_str: str) -> List[int]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Dump BinaryIO PacketCommander telemetry as decoded values.")
+    parser = argparse.ArgumentParser(description="Dump RobustBinaryIO PacketCommander telemetry as decoded values.")
     parser.add_argument("--port", required=True, help="Serial port (e.g. /dev/ttyACM0 or COM3)")
     parser.add_argument("--baud", type=int, default=460800, help="Baud rate (default 460800)")
     parser.add_argument(
@@ -53,11 +53,11 @@ def main():
     )
     parser.add_argument("--downsample", type=int, default=10, help="Telemetry downsample value (default 10)")
     parser.add_argument("--controller", type=int, default=0, help="Telemetry controller index (default 0)")
-    parser.add_argument("--debug-frames", action="store_true", help="Print BinaryIO frame directions for troubleshooting")
+    parser.add_argument("--debug-frames", action="store_true", help="Print RobustBinaryIO frame directions for troubleshooting")
     parser.add_argument("--rearm-seconds", type=float, default=2.0, help="If no telemetry for this many seconds, reapply register list")
     parser.add_argument("--quiet", action="store_true", help="Only print values; suppress connection banner")
     parser.add_argument("--listen-only", action="store_true", help="Do not configure telemetry; just parse incoming frames using the provided reg list")
-    parser.add_argument("--log-only", action="store_true", help="Only display BinaryIO log packets (type 'L'); ignore telemetry output")
+    parser.add_argument("--log-only", action="store_true", help="Only display RobustBinaryIO log packets (type 'L'); ignore telemetry output")
     args = parser.parse_args()
 
     if args.log_only:

@@ -14,24 +14,28 @@ Usage:
 ```bash
 cd flash
 python flash_firmware.py --port /dev/ttyACM0 --bin ../.pio/build/tstorm32_simplefoc/firmware.bin                 # UART (reset @460800, boot @115200)
-python flash_firmware.py --stlink --bin ../.pio/build/tstorm32_simplefoc/firmware.bin --addr 0x08002000            # STLink
+python flash/flash_firmware.py --bin .pio/build/tstorm32_simplefoc/firmware.bin --reset-baud 460800 --boot-baud 115200 --port /dev/cu.usbserial-0001 --binary-reset # reset a BinaryIO protocol firmware
+python flash/flash_firmware.py --bin .pio/build/tstorm32_simplefoc/firmware.bin --reset-baud 460800 --boot-baud 115200 --port /dev/cu.usbserial-0001 --rbinary-reset # reset a RobustBinaryIOv2 firmware
+python flash_firmware.py --stlink --bin ../.pio/build/tstorm32_simplefoc/firmware.bin --addr 0x08001800            # STLink
 ```
 
 Flow:
-1) Sends a reset-to-bootloader token (`BOOT\n`) to the running app (unless `--no-reset`).
+1) Sends a reset-to-bootloader token (`B6\n` text, BinaryIO `B`, or RobustBinaryIO v2 `C`/CMD_BOOTLOADER) to the running app (unless `--no-reset`).
 2) Bootloader sees BKP magic and stays in update mode.
 3) Host sends header: `UPD0` + `<len>` + `<crc32>` (little-endian), waits for `OK`.
 4) Streams firmware bytes, waits for final `OK`.
 
 Options:
 - `--bin` path to app firmware (defaults to PlatformIO app build).
-- `--no-reset` skips the BOOT command if you’ve already reset into the bootloader.
+- `--no-reset` skips the boot command if you’ve already reset into the bootloader.
 - `--boot-baud` baud rate for bootloader transfer (default 115200). Alias: `--baud`.
 - `--reset-baud` baud rate used to send the BOOT reset command to the running firmware (default 460800).
 - `--port` serial port (UART mode, required unless using --stlink).
 - `--stlink` use st-flash instead of UART.
 - `--stflash` path to st-flash (default `st-flash`).
-- `--addr` flash address for st-flash (default 0x08002000).
+- `--binary-reset` send the boot command using BinaryIO framing (0xA5 0x02 'B' 0x06) instead of text `B6\n`.
+- `--rbinary-reset` send the boot command using RobustBinaryIO v2 framing (C/CMD_BOOTLOADER) instead of text `B6\n`.
+- `--addr` flash address for st-flash (default 0x08001800).
 
 ## flash_bootloader.py (STLink)
 
